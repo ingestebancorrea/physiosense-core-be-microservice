@@ -7,24 +7,19 @@ import {
   AssessmentType,
   CLINICAL_RECORD_TYPE_LABEL,
 } from 'src/common/enum/clinical.enum';
-import { NotificationCategory } from 'src/common/enum/notification.enum';
 import { PaginatedDto } from 'src/common/dto/pagination.dto';
-import { Patient } from 'src/patient/entities/patient.entity';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
 import { PatientsService } from 'src/patient/patient.service';
 import { ClinicalRecord } from './entities/clinical-record.entity';
 import { ClinicalAssessment } from './entities/clinical-assessment.entity';
-import { Notification } from './entities/notification.entity';
 import {
   CreateAssessmentDto,
   CreateClinicalRecordDto,
-  CreateNotificationDto,
   QueryClinicalRecordsDto,
-  QueryNotificationsDto,
 } from './dto/clinical.dto';
 import {
   AssessmentResponseDto,
   ClinicalRecordResponseDto,
-  NotificationResponseDto,
 } from './dto/clinical-response.dto';
 
 @Injectable()
@@ -34,9 +29,8 @@ export class ClinicalService {
     private readonly recordRepository: Repository<ClinicalRecord>,
     @InjectRepository(ClinicalAssessment)
     private readonly assessmentRepository: Repository<ClinicalAssessment>,
-    @InjectRepository(Notification)
-    private readonly notificationRepository: Repository<Notification>,
-    @InjectRepository(Patient) private readonly patientRepository: Repository<Patient>,
+    @InjectRepository(PatientProfile)
+    private readonly patientProfileRepository: Repository<PatientProfile>,
     private readonly patientsService: PatientsService,
   ) {}
 
@@ -221,98 +215,14 @@ export class ClinicalService {
       throw new NotFoundException(ErrorMessages.NOT_FOUND);
     }
 
-    assessment.is_completed = true;
+assessment.is_completed = true;
     await this.assessmentRepository.save(assessment);
 
     return this.toAssessmentResponse(assessment);
   }
 
-  async createNotification(
-    dto: CreateNotificationDto,
-  ): Promise<NotificationResponseDto> {
-    const notification = await this.notificationRepository.save(
-      this.notificationRepository.create({
-        user_id: dto.user_id,
-        patient_id: dto.patient_id ?? null,
-        category: dto.category ?? NotificationCategory.GENERAL,
-        title: dto.title,
-        description: dto.description ?? null,
-        is_important: dto.is_important ?? false,
-      }),
-    );
-
-    return this.toNotificationResponse(notification);
-  }
-
-  async findNotifications(
-    userId: number,
-    query: QueryNotificationsDto,
-  ): Promise<PaginatedDto<NotificationResponseDto>> {
-    const qb = this.notificationRepository
-      .createQueryBuilder('notification')
-      .where('notification.user_id = :userId', { userId });
-
-    if (query.category) {
-      qb.andWhere('notification.category = :category', { category: query.category });
-    }
-
-    if (query.is_read !== undefined) {
-      qb.andWhere('notification.is_read = :isRead', { isRead: query.is_read });
-    }
-
-    qb.orderBy('notification.created_at', 'DESC')
-      .skip(query.skip)
-      .take(query.limit);
-
-    const [rows, total] = await qb.getManyAndCount();
-
-    return {
-      items: rows.map((notification) => this.toNotificationResponse(notification)),
-      total,
-      page: query.page,
-      limit: query.limit,
-      total_pages: Math.ceil(total / query.limit),
-    };
-  }
-
-  async countUnread(userId: number): Promise<number> {
-    return this.notificationRepository
-      .createQueryBuilder('notification')
-      .where('notification.user_id = :userId', { userId })
-      .andWhere('notification.is_read = false')
-      .getCount();
-  }
-
-  /** Marca una notificación como leída. Solo su dueño puede. */
-  async markAsRead(userId: number, notificationId: number): Promise<NotificationResponseDto> {
-    const notification = await this.notificationRepository.findOne({
-      where: { notification_id: notificationId, user_id: userId },
-    });
-
-    if (!notification) {
-      throw new NotFoundException(ErrorMessages.NOT_FOUND);
-    }
-
-    if (!notification.is_read) {
-      notification.is_read = true;
-      notification.read_at = new Date();
-      await this.notificationRepository.save(notification);
-    }
-
-    return this.toNotificationResponse(notification);
-  }
-
-  async markAllAsRead(userId: number): Promise<number> {
-    const result = await this.notificationRepository.update(
-      { user_id: userId, is_read: false },
-      { is_read: true, read_at: new Date() },
-    );
-
-    return result.affected ?? 0;
-  }
-
   private async assertPatientExists(patientId: number): Promise<void> {
-    const patient = await this.patientRepository.findOne({
+    const patient = await this.patientProfileRepository.findOne({
       where: { patient_id: patientId },
     });
 
@@ -356,24 +266,7 @@ export class ClinicalService {
       score: assessment.score === null ? null : Number(assessment.score),
       notes: assessment.notes,
       is_completed: assessment.is_completed,
-      assessedAt: assessment.assessed_at,
-    };
-  }
-
-  private toNotificationResponse(
-    notification: Notification,
-  ): NotificationResponseDto {
-    return {
-      id: notification.notification_id,
-      user_id: notification.user_id,
-      patient_id: notification.patient_id,
-      category: notification.category,
-      title: notification.title,
-      description: notification.description,
-      is_read: notification.is_read,
-      is_important: notification.is_important,
-      read_at: notification.read_at,
-      created_at: notification.created_at,
+assessedAt: assessment.assessed_at,
     };
   }
 }

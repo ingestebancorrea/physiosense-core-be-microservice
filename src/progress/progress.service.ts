@@ -11,7 +11,7 @@ import {
   SessionStatus,
 } from 'src/common/enum/session-status.enum';
 import { ExerciseMeasureUnit } from 'src/common/enum/exercise.enum';
-import { Patient } from 'src/patient/entities/patient.entity';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
 import { Session } from 'src/session/entities/session.entity';
 import { ProgressSnapshot } from './entities/progress-snapshot.entity';
 import {
@@ -46,7 +46,8 @@ export class ProgressService {
     @InjectRepository(ProgressSnapshot)
     private readonly snapshotRepository: Repository<ProgressSnapshot>,
     @InjectRepository(Session) private readonly sessionRepository: Repository<Session>,
-    @InjectRepository(Patient) private readonly patientRepository: Repository<Patient>,
+    @InjectRepository(PatientProfile)
+    private readonly patientProfileRepository: Repository<PatientProfile>,
   ) {}
 
   /**
@@ -459,7 +460,7 @@ export class ProgressService {
   }
 
   private async assertPatient(patientId: number): Promise<void> {
-    const patient = await this.patientRepository.findOne({
+    const patient = await this.patientProfileRepository.findOne({
       where: { patient_id: patientId },
     });
 

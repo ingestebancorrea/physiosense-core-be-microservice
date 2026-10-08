@@ -2,54 +2,34 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsDateString,
-  IsEmail,
   IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
-  IsUrl,
   Length,
   Max,
   Min,
 } from 'class-validator';
-import { DominantHand } from 'src/common/enum/profile-role.enum';
-import { PatientStatus } from '../entities/patient.entity';
+import { PatientStatus } from '../entities/patient-profile.entity';
 
 /**
- * Alta del registro clínico de un paciente.
+ * Alta de la ficha clinica local de un paciente.
  *
- * `user_id` NO se acepta desde afuera: se deriva del token, salvo que el
- * endpoint sea el de sincronización explícita desde el servicio de
- * autenticación.
+ * La identidad NO se acepta desde afuera: nombre, email, avatar, telefono,
+ * nacimiento y mano dominante viven en authentication-be-microservice y se
+ * consultan por REST. Lo unico que se recibe es el `patient_id` de ahi (para
+ * saber de que paciente hablamos) y los campos clinicos propios de este
+ * servicio.
  */
 export class CreatePatientDto {
-  @ApiProperty({ description: 'users.id del microservicio de autenticación' })
+  @ApiProperty({
+    description:
+      'patients.patient_id del microservicio de autenticacion. Es el id con el que auth conoce al paciente.',
+  })
   @IsInt()
   @Min(1)
-  user_id: number;
-
-  @ApiProperty({ example: 'María López' })
-  @IsString()
-  @Length(2, 120)
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  full_name: string;
-
-  @ApiPropertyOptional({ example: 'maria.lopez@physiosense.co' })
-  @IsOptional()
-  @IsEmail()
-  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase().trim() : value))
-  email: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsUrl({ require_tld: false })
-  avatar_url: string;
-
-  @ApiPropertyOptional({ example: '1992-08-12', description: 'YYYY-MM-DD' })
-  @IsOptional()
-  @IsDateString()
-  birth_date: string;
+  patient_id: number;
 
   @ApiPropertyOptional({ enum: PatientStatus, default: PatientStatus.ACTIVE })
   @IsOptional()
@@ -60,6 +40,7 @@ export class CreatePatientDto {
   @IsOptional()
   @IsString()
   @Length(1, 500)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   diagnosis: string;
 
   @ApiPropertyOptional({ example: '2024-04-15', description: 'Fecha de inicio del tratamiento' })
@@ -92,18 +73,9 @@ export class CreatePatientDto {
   @Max(100)
   strength_score?: number;
 
-  @ApiPropertyOptional({ example: '+57 300 765 4321' })
-  @IsOptional()
-  @IsString()
-  @Length(1, 30)
-  phone: string;
-
-  @ApiPropertyOptional({ enum: DominantHand })
-  @IsOptional()
-  @IsEnum(DominantHand)
-  dominant_hand: DominantHand;
-
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description: 'Notas del fisioterapeuta. Las notas del paciente (auth) llegan por REST.',
+  })
   @IsOptional()
   @IsString()
   notes: string;

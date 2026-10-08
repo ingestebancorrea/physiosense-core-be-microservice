@@ -9,8 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { AssessmentType } from 'src/common/enum/clinical.enum';
-import { Patient } from 'src/patient/entities/patient.entity';
-import { Therapist } from 'src/therapist/entities/therapist.entity';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
 
 /**
  * Evaluación clínica estructurada.
@@ -29,16 +28,13 @@ export class ClinicalAssessment {
   @Column({ type: 'int' })
   patient_id: number;
 
-  @ManyToOne(() => Patient, { onDelete: 'CASCADE' })
+  @ManyToOne(() => PatientProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: PatientProfile;
 
+  // physiotherapists.physiotherapist_id (auth). Sin relacion ni FK.
   @Column({ type: 'int' })
   therapist_id: number;
-
-  @ManyToOne(() => Therapist, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'therapist_id' })
-  therapist: Therapist;
 
   @Column({
     type: 'enum',

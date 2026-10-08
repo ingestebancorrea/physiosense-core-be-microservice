@@ -1,94 +1,61 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { NotFoundException } from '@nestjs/common';
 import { ActorGuard } from 'src/common/guards/actor.guard';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
-import { InternalSyncGuard } from 'src/common/guards/internal-sync.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { CurrentActor } from 'src/common/decorators/current-user.decorator';
 import { ProfileRoleAlias } from 'src/common/enum/profile-role.enum';
-import { ErrorMessages } from 'src/common/enum/error-messages.enum';
 import { Actor } from 'src/common/interfaces/authenticated-user.interface';
-import { Therapist } from './entities/therapist.entity';
-import { SyncTherapistDto } from './dto/sync-therapist.dto';
+import {
+  AuthClient,
+  AuthTherapistProfile,
+} from 'src/common/services/auth-client.service';
 
+/**
+ * Lectura del fisioterapeuta.
+ *
+ * Este servicio ya no tiene tabla `therapists`: el perfil se trae de
+ * authentication-be-microservice en cada request (cacheado 60 s por
+ * `AuthClient`). El shape de respuesta se mantiene con `therapist_id` para no
+ * romper al cliente movil, que ya usa ese nombre.
+ */
 @ApiTags('therapists')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, ActorGuard, RolesGuard)
 @Controller('therapists')
 export class TherapistsController {
-  constructor(
-    @InjectRepository(Therapist)
-    private readonly therapistRepository: Repository<Therapist>,
-  ) {}
-
-  /**
-   * Upsert por `user_id`.
-   *
-   * Lo invoca authentication-be-microservice al registrarse o editar un
-   * fisioterapeuta. No usa `ActorGuard` a propósito: el usuario todavía no está
-   * en `therapists`, así que con ActorGuard el primer fisioterapeuta no podría
-   * ever registrarse. En su lugar se valida el secreto de sincronización
-   * (`InternalSyncGuard`), porque es un endpoint de servicio a servicio.
-   */
-  @Post('sync')
-  @UseGuards(JwtAuthGuard, InternalSyncGuard)
-  @ApiOperation({
-    summary: 'Sincroniza el read-model del fisioterapeuta',
-    description:
-      'Endpoint interno. Requiere el header `x-internal-sync-secret` con el ' +
-      'mismo valor que INTERNAL_SYNC_SECRET.',
-  })
-  async sync(@Body() dto: SyncTherapistDto): Promise<Therapist> {
-    const existing = await this.therapistRepository.findOne({
-      where: { user_id: dto.user_id },
-    });
-
-    if (existing) {
-      Object.assign(existing, dto);
-      return this.therapistRepository.save(existing);
-    }
-
-    return this.therapistRepository.save(this.therapistRepository.create(dto));
-  }
+  constructor(private readonly authClient: AuthClient) {}
 
   @Get('me')
   @Roles(ProfileRoleAlias.PHYSIOTHERAPIST)
   @ApiOperation({ summary: 'Perfil del fisioterapeuta autenticado' })
-  async me(@CurrentActor() actor: Actor): Promise<Therapist> {
-    const therapist = await this.therapistRepository.findOne({
-      where: { therapist_id: actor.therapistId },
-    });
-
-    if (!therapist) {
-      throw new NotFoundException(ErrorMessages.THERAPIST_NOT_FOUND);
-    }
-
-    return therapist;
+  async me(@CurrentActor() actor: Actor) {
+    const therapist = await this.authClient.getTherapist(actor.therapistId);
+    return this.toResponse(therapist);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Detalle de un fisioterapeuta' })
-  async findOne(@Param('id', ParseIntPipe) id: number): Promise<Therapist> {
-    const therapist = await this.therapistRepository.findOne({
-      where: { therapist_id: id },
-    });
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    const therapist = await this.authClient.getTherapist(id);
+    return this.toResponse(therapist);
+  }
 
-    if (!therapist) {
-      throw new NotFoundException(ErrorMessages.THERAPIST_NOT_FOUND);
-    }
-
-    return therapist;
+  private toResponse(therapist: AuthTherapistProfile) {
+    return {
+      therapist_id: therapist.physiotherapist_id,
+      user_id: therapist.user_id,
+      full_name: therapist.full_name,
+      email: therapist.email,
+      avatar_url: therapist.avatar_url,
+      specialty: therapist.specialty,
+      license_number: therapist.license_number,
+      institution: therapist.institution,
+      years_of_experience: therapist.years_of_experience,
+      phone: therapist.phone,
+      notes: therapist.notes,
+      is_active: therapist.is_active,
+    };
   }
 }

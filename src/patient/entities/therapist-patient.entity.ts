@@ -9,8 +9,7 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
-import { Patient } from './patient.entity';
-import { Therapist } from 'src/therapist/entities/therapist.entity';
+import { PatientProfile } from './patient-profile.entity';
 
 /**
  * Vincula un paciente con un fisioterapeuta.
@@ -19,6 +18,10 @@ import { Therapist } from 'src/therapist/entities/therapist.entity';
  * ('Dr. Esteban Correa') y `PatientProfile.assignedTherapist` es texto libre.
  * Sin esta tabla no se puede responder "mis pacientes" ni autorizar al
  * fisioterapeuta sobre un paciente concreto.
+ *
+ * `therapist_id` es el `physiotherapists.physiotherapist_id` de
+ * authentication-be-microservice: sin FK, porque `therapists` no existe en
+ * esta base. La identidad del fisioterapeuta se resuelve por REST.
  */
 @Entity('therapist_patients')
 @Unique('uq_therapist_patients_pair', ['patient_id', 'therapist_id'])
@@ -30,19 +33,15 @@ export class TherapistPatient {
   @Column({ type: 'int' })
   patient_id: number;
 
-  @ManyToOne(() => Patient, (patient) => patient.therapist_assignments, {
+  @ManyToOne(() => PatientProfile, (patient) => patient.therapist_assignments, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: PatientProfile;
 
   @Index('idx_therapist_patients_therapist')
   @Column({ type: 'int' })
   therapist_id: number;
-
-  @ManyToOne(() => Therapist, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'therapist_id' })
-  therapist: Therapist;
 
   // Un paciente tiene un fisioterapeuta principal; el resto son suplentes.
   @Column({ type: 'bool', default: false })

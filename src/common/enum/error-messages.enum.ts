@@ -11,6 +11,7 @@ export enum ErrorMessages {
   DEVICE_NOT_CONNECTED = 'El dispositivo no está conectado',
   FORBIDDEN_ROLE = 'No tenés permisos para realizar esta acción',
   DUPLICATED_RESOURCE = 'El recurso ya existe',
+  AUTH_SERVICE_UNAVAILABLE = 'El servicio de autenticacion no esta disponible',
   INVALID_PROGRESS_PERIOD = 'El periodo de progreso no es válido',
   INVALID_DATE_RANGE = 'El rango de fechas no es válido',
   INVALID_TARGET_RANGE = 'El rango objetivo debe cumplir min < max y estar entre 0 y 180 grados',

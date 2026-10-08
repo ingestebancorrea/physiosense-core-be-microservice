@@ -12,8 +12,11 @@ import {
   SessionStatus,
 } from 'src/common/enum/session-status.enum';
 import { ExerciseMeasureUnit } from 'src/common/enum/exercise.enum';
-import { Patient } from 'src/patient/entities/patient.entity';
-import { Therapist } from 'src/therapist/entities/therapist.entity';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
+import {
+  AuthClient,
+  AuthPatientProfile,
+} from 'src/common/services/auth-client.service';
 import { Exercise } from 'src/exercise/entities/exercise.entity';
 import { SessionExerciseInputDto } from 'src/exercise/dto/create-exercise.dto';
 import { Session } from './entities/session.entity';
@@ -48,8 +51,9 @@ export class SessionsService {
     private readonly sessionExerciseRepository: Repository<SessionExercise>,
     @InjectRepository(TreatmentPlan)
     private readonly planRepository: Repository<TreatmentPlan>,
-    @InjectRepository(Patient) private readonly patientRepository: Repository<Patient>,
-    @InjectRepository(Therapist) private readonly therapistRepository: Repository<Therapist>,
+    @InjectRepository(PatientProfile)
+    private readonly patientProfileRepository: Repository<PatientProfile>,
+    private readonly authClient: AuthClient,
     @InjectRepository(Exercise) private readonly exerciseRepository: Repository<Exercise>,
   ) {}
 
@@ -57,7 +61,7 @@ export class SessionsService {
     dto: CreateSessionDto,
     defaultTherapistId: number,
   ): Promise<SessionResponseDto> {
-    const patient = await this.patientRepository.findOne({
+    const patient = await this.patientProfileRepository.findOne({
       where: { patient_id: dto.patient_id },
     });
 
@@ -65,14 +69,9 @@ export class SessionsService {
       throw new NotFoundException(ErrorMessages.PATIENT_NOT_FOUND);
     }
 
+    // El fisioterapeuta vive en auth: si no existe ahi, no existe.
     const therapistId = dto.therapist_id ?? defaultTherapistId;
-    const therapist = await this.therapistRepository.findOne({
-      where: { therapist_id: therapistId },
-    });
-
-    if (!therapist) {
-      throw new NotFoundException(ErrorMessages.THERAPIST_NOT_FOUND);
-    }
+    await this.authClient.assertTherapist(therapistId);
 
     const exercises = await this.resolveExercises(dto.exercises);
 
@@ -120,9 +119,10 @@ export class SessionsService {
   async findAll(
     query: QuerySessionsDto,
   ): Promise<PaginatedDto<SessionResponseDto>> {
+    // Sin join a `patient_profiles`: el nombre y el avatar viven en auth, no
+    // en esta base. Se resuelven por REST, cacheados, solo para la pagina.
     const qb = this.sessionRepository
       .createQueryBuilder('session')
-      .leftJoinAndSelect('session.patient', 'patient')
       .leftJoinAndSelect('session.exercises', 'exercises')
       .leftJoinAndSelect('exercises.exercise', 'exercise');
 
@@ -134,12 +134,12 @@ export class SessionsService {
       qb.andWhere('session.status = :status', { status: query.status });
     }
 
-    // La app busca por título o por nombre del paciente, en minúsculas.
+    // La app busca por título o por nombre del paciente. Ese nombre vive en
+    // auth y no se filtra acá: el LIKE se queda solo contra el título.
     if (query.search) {
-      qb.andWhere(
-        '(LOWER(session.title) LIKE :search OR LOWER(patient.full_name) LIKE :search)',
-        { search: `%${query.search.toLowerCase()}%` },
-      );
+      qb.andWhere('LOWER(session.title) LIKE :search', {
+        search: `%${query.search.toLowerCase()}%`,
+      });
     }
 
     const range = query.duration_range ? DURATION_RANGES[query.duration_range] : undefined;
@@ -158,8 +158,12 @@ export class SessionsService {
 
     const [rows, total] = await qb.getManyAndCount();
 
+    const patients = await this.authClient.getPatientsByIds(
+      rows.map((session) => session.patient_id),
+    );
+
     return {
-      items: rows.map((session) => this.toResponse(session)),
+      items: rows.map((session) => this.toResponse(session, patients)),
       total,
       page: query.page,
       limit: query.limit,
@@ -170,14 +174,16 @@ export class SessionsService {
   async findOne(sessionId: number): Promise<SessionResponseDto> {
     const session = await this.sessionRepository.findOne({
       where: { session_id: sessionId },
-      relations: { patient: true, exercises: { exercise: true } },
+      relations: { exercises: { exercise: true } },
     });
 
     if (!session) {
       throw new NotFoundException(ErrorMessages.SESSION_NOT_FOUND);
     }
 
-    return this.toResponse(session);
+    const patients = await this.authClient.getPatientsByIds([session.patient_id]);
+
+    return this.toResponse(session, patients);
   }
 
   async update(sessionId: number, dto: UpdateSessionDto): Promise<SessionResponseDto> {
@@ -324,8 +330,8 @@ export class SessionsService {
   }
 
   private async countRepetitions(sessionExerciseId: number): Promise<number> {
-    // El conteo vive en device_sessions; se resuelve acá por el id del
-    // ejercicio de la sesión para no acoplarse al módulo de dispositivos.
+// El conteo vive en `repetition_logs`; se resuelve acá por el id del
+    // ejercicio de la sesión para no acoplarse al módulo de telemetría.
     const rows = await this.sessionExerciseRepository.query(
       'SELECT COUNT(*)::int AS total FROM repetition_logs WHERE session_exercise_id = $1',
       [sessionExerciseId],
@@ -338,7 +344,7 @@ export class SessionsService {
     dto: CreateTreatmentPlanDto,
     therapistId: number,
   ): Promise<TreatmentPlanResponseDto> {
-    const patient = await this.patientRepository.findOne({
+    const patient = await this.patientProfileRepository.findOne({
       where: { patient_id: dto.patient_id },
     });
 
@@ -418,7 +424,9 @@ export class SessionsService {
       order: { scheduled_at: 'ASC' },
     });
 
-    return sessions.map((session) => this.toResponse(session));
+    const patients = await this.authClient.getPatientsByIds([patientId]);
+
+    return sessions.map((session) => this.toResponse(session, patients));
   }
 
   private async loadForUpdate(sessionId: number): Promise<Session> {
@@ -537,16 +545,25 @@ export class SessionsService {
     }
   }
 
-  private toResponse(session: Session): SessionResponseDto {
+  /**
+   * Nombre y avatar del paciente no estan en `patient_profiles`: llegan desde
+   * auth en `patients`, ya cacheados por `AuthClient`.
+   */
+  private toResponse(
+    session: Session,
+    patients: Map<number, AuthPatientProfile> = new Map(),
+  ): SessionResponseDto {
     const exercises = [...(session.exercises ?? [])]
       .sort((a, b) => a.position - b.position)
       .map((item) => this.toExerciseResponse(item));
 
+    const identity = patients.get(session.patient_id);
+
     return {
       id: session.session_id,
       patient_id: session.patient_id,
-      patientName: session.patient?.full_name ?? null,
-      patientAvatarUrl: session.patient?.avatar_url ?? null,
+      patientName: identity?.full_name ?? null,
+      patientAvatarUrl: identity?.avatar_url ?? null,
       therapist_id: session.therapist_id,
       title: session.title,
       objective: session.objective,

@@ -21,7 +21,6 @@ import {
   MIN_PAIN_SCALE,
   MIN_ROM_DEGREES,
 } from 'src/common/enum/clinical.enum';
-import { NotificationCategory } from 'src/common/enum/notification.enum';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 
 /** Nota de la ficha clínica del paciente. */
@@ -139,59 +138,4 @@ export class QueryClinicalRecordsDto extends PaginationDto {
   @IsString()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   search?: string;
-}
-
-/**
- * Notificación.
- *
- * `user_id` es el `users.id` de auth. Ojo: las notificaciones apuntan al
- * usuario de auth y no a `patients.patient_id`, porque el fisioterapeuta también
- * las recibe (`TherapistNotificationsData`).
- */
-export class CreateNotificationDto {
-  @ApiProperty({ description: 'users.id del microservicio de autenticación' })
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  user_id: number;
-
-  @ApiPropertyOptional({ description: 'patients.patient_id, si aplica' })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  patient_id: number;
-
-  @ApiPropertyOptional({ enum: NotificationCategory, default: NotificationCategory.GENERAL })
-  @IsOptional()
-  @IsEnum(NotificationCategory)
-  category?: NotificationCategory;
-
-  @ApiProperty({ example: 'Nueva evaluación pendiente' })
-  @IsString()
-  @Length(2, 160)
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  title: string;
-
-  @ApiPropertyOptional({ example: 'María tiene una evaluación nueva para revisar.' })
-  @IsOptional()
-  @IsString()
-  description: string;
-
-  @ApiPropertyOptional({ example: true })
-  @IsOptional()
-  @IsBoolean()
-  is_important?: boolean;
-}
-
-export class QueryNotificationsDto extends PaginationDto {
-  @ApiPropertyOptional({ enum: NotificationCategory })
-  @IsOptional()
-  @IsEnum(NotificationCategory)
-  category?: NotificationCategory;
-
-  @ApiPropertyOptional({ description: 'Sólo leídas o sólo no leídas' })
-  @IsOptional()
-  @IsBoolean()
-  is_read?: boolean;
 }

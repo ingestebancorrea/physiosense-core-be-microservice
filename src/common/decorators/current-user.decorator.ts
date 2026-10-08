@@ -12,7 +12,7 @@ export const CurrentUser = createParamDecorator(
 );
 
 /**
- * Actor con el rol ya resuelto contra las tablas de este servicio.
+ * Actor con el rol ya resuelto contra authentication-be-microservice.
  *
  * `request.actor` lo arma `ActorGuard`, así que el endpoint tiene que declararlo.
  */

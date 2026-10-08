@@ -9,9 +9,9 @@ import { JwtModule } from '@nestjs/jwt';
  * se evalúa al importar el archivo, antes de que ConfigModule cargue el .env:
  * process.env.JWT_SECRET todavía valía undefined en ese momento.
  *
- * Este módulo sólo verifica tokens: no emite. Los repositorios de
- * `patients`/`therapists` que necesita `ActorGuard` para resolver el rol se
- * registran en `CommonModule`.
+ * Este modulo solo verifica tokens emitidos por auth; quien emite un token propio es
+ * `AuthClient` (token de servicio, comparte JWT_SECRET). No lleva repositorios:
+ * `ActorGuard` consulta `patient_profiles` con el `DataSource` (global) para el chequeo de baja local.
  */
 @Global()
 @Module({
