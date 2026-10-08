@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { QualityLevel } from 'src/common/enum/execution.enum';
 import { Exercise } from 'src/exercise/entities/exercise.entity';
-import { Patient } from 'src/patient/entities/patient.entity';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
 import { Session } from 'src/session/entities/session.entity';
 import { SessionExercise } from 'src/session/entities/session-exercise.entity';
 
@@ -64,9 +64,9 @@ export class RepetitionLog {
   @Column({ type: 'int' })
   patient_id: number;
 
-  @ManyToOne(() => Patient, { onDelete: 'CASCADE' })
+  @ManyToOne(() => PatientProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: PatientProfile;
 
   @Column({ type: 'int' })
   series_number: number;

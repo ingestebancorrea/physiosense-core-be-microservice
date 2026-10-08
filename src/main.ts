@@ -25,7 +25,7 @@ async function bootstrap() {
     .setTitle('PhysioSense Core API')
     .setDescription(
       'Núcleo de dominio de PhysioSense: pacientes, ejercicios, sesiones, ' +
-        'progreso, información clínica y dispositivos.',
+        'progreso, información clínica y telemetría.',
     )
     .setVersion('1.0')
     .addBearerAuth(
@@ -35,7 +35,7 @@ async function bootstrap() {
         bearerFormat: 'JWT',
         description:
           'Token emitido por authentication-be-microservice. No incluye el ' +
-          'rol: se resuelve contra las tablas de este servicio.',
+          'rol: se resuelve contra ese servicio por REST (AuthClient).',
       },
       'bearer',
     )

@@ -3,7 +3,6 @@ import {
   AssessmentType,
   ClinicalRecordType,
 } from 'src/common/enum/clinical.enum';
-import { NotificationCategory } from 'src/common/enum/notification.enum';
 
 export class ClinicalRecordResponseDto {
   @ApiProperty()
@@ -73,36 +72,4 @@ export class AssessmentResponseDto {
 
   @ApiProperty()
   assessedAt: Date;
-}
-
-export class NotificationResponseDto {
-  @ApiProperty()
-  id: number;
-
-  @ApiProperty()
-  user_id: number;
-
-  @ApiPropertyOptional()
-  patient_id: number;
-
-  @ApiProperty({ enum: NotificationCategory })
-  category: NotificationCategory;
-
-  @ApiProperty({ example: 'Nueva evaluación pendiente' })
-  title: string;
-
-  @ApiPropertyOptional()
-  description: string;
-
-  @ApiProperty({ example: false })
-  is_read: boolean;
-
-  @ApiProperty({ example: true })
-  is_important: boolean;
-
-  @ApiPropertyOptional()
-  read_at: Date;
-
-  @ApiProperty()
-  created_at: Date;
 }

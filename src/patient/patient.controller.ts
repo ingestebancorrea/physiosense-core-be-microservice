@@ -17,7 +17,6 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import { ActorGuard } from 'src/common/guards/actor.guard';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
-import { InternalSyncGuard } from 'src/common/guards/internal-sync.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { CurrentActor } from 'src/common/decorators/current-user.decorator';
 import { ProfileRoleAlias } from 'src/common/enum/profile-role.enum';
@@ -38,29 +37,14 @@ import { PatientsService } from './patient.service';
 export class PatientsController {
   constructor(private readonly patientsService: PatientsService) {}
 
-  /**
-   * Alta idempotente. La usa el servicio de autenticación al registrarse un
-   * paciente: si la ficha ya existe la actualiza en vez de devolver 409.
-   *
-   * No usa `ActorGuard`: el paciente todavía no está en la tabla `patients`, así
-   * que con ActorGuard el primer usuario no podría registrarse. Se valida el
-   * secreto de sincronización porque es un endpoint de servicio a servicio.
-   */
-  @Post('sync')
-  @UseGuards(JwtAuthGuard, InternalSyncGuard)
-  @ApiOperation({
-    summary: 'Sincroniza la ficha clínica de un paciente (uso interno)',
-    description:
-      'Endpoint interno. Requiere el header `x-internal-sync-secret` con el ' +
-      'mismo valor que INTERNAL_SYNC_SECRET.',
-  })
-  sync(@Body() createPatientDto: CreatePatientDto) {
-    return this.patientsService.sync(createPatientDto);
-  }
-
   @Post()
   @Roles(ProfileRoleAlias.PHYSIOTHERAPIST)
-  @ApiOperation({ summary: 'Crea la ficha clínica de un paciente' })
+  @ApiOperation({
+    summary: 'Crea la ficha clinica local de un paciente',
+    description:
+      'El paciente debe existir ya en authentication-be-microservice: aca solo ' +
+      'se recibe su patient_id y los campos clinicos (diagnostico, scores, notas).',
+  })
   @ApiResponse({ status: 201, type: PatientResponseDto })
   create(@Body() createPatientDto: CreatePatientDto) {
     return this.patientsService.create(createPatientDto);

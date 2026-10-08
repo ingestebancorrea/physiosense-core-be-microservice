@@ -4,7 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClinicalModule } from 'src/clinical/clinical.module';
 import { CommonModule } from 'src/common/common.module';
 import { JwtConfigModule } from 'src/auth/jwt.module';
-import { DeviceModule } from 'src/device/device.module';
+import { TelemetryModule } from 'src/telemetry/telemetry.module';
 import { ExerciseModule } from 'src/exercise/exercise.module';
 import { PatientModule } from 'src/patient/patient.module';
 import { ProgressModule } from 'src/progress/progress.module';
@@ -41,7 +41,7 @@ import { ENTITIES } from 'src/database/entities';
     SessionModule,
     ProgressModule,
     ClinicalModule,
-    DeviceModule,
+    TelemetryModule,
   ],
 })
 export class AppModule {}

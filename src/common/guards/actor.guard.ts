@@ -3,32 +3,44 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { ErrorMessages } from '../enum/error-messages.enum';
 import { ProfileRoleAlias } from '../enum/profile-role.enum';
 import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
-import { Patient } from 'src/patient/entities/patient.entity';
-import { Therapist } from 'src/therapist/entities/therapist.entity';
+import {
+  AuthClient,
+  AuthUserProfile,
+} from '../services/auth-client.service';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
 
 /**
  * Resuelve el rol del actor y lo deja en `request.actor`.
  *
  * El token de authentication-be-microservice NO incluye el rol (solo
- * { uuid, username, name }), así que el rol se determina contra las tablas de
- * este servicio: si el user_id está en `patients` es PAC, si está en
- * `therapists` es FIS.
+ * { uuid, username, name }), asi que el rol se pide a ese servicio con
+ * `GET /users/:id/profile`: si el usuario es PAC ahi esta su `patient_id`, y si
+ * es FIS su `physiotherapist_id`. Este modulo ya no tiene tablas
+ * `patients`/`therapists` contra las que preguntar.
  *
- * Una cuenta que todavía no fue sincronizada a este servicio no tiene rol: se
- * responde 403 en vez de 401 porque el token sí es válido, simplemente no hay
- * nada que pueda hacer acá.
+ * La unica consulta local que queda es `patient_profiles.is_active`: la baja
+ * local que hace el fisioterapeuta no debe permitirle al paciente seguir
+ * operando, y esa decision es de este servicio.
+ *
+ * Se responde 403 (no 401) cuando no hay rol: el token es valido, simplemente
+ * ese usuario no puede operar sobre el dominio.
+ *
+ * El chequeo de baja local se hace con `DataSource` (no con `@InjectRepository`):
+ * los guards se instancian en el contexto del modulo del controller que los
+ * usa, y `TherapistModule` no importa `TypeOrmModule.forFeature`. El `DataSource`
+ * en cambio viene del `TypeOrmCoreModule`, que es global.
  */
 @Injectable()
 export class ActorGuard implements CanActivate {
   constructor(
-    @InjectRepository(Patient) private readonly patientRepository: Repository<Patient>,
-    @InjectRepository(Therapist) private readonly therapistRepository: Repository<Therapist>,
+    private readonly dataSource: DataSource,
+    private readonly authClient: AuthClient,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -40,41 +52,73 @@ export class ActorGuard implements CanActivate {
       return true;
     }
 
-    const patient = await this.patientRepository.findOne({
-      where: { user_id: user.uuid, is_active: true },
-      select: { patient_id: true },
-    });
+    const profile = await this.resolveProfile(user.uuid);
 
-    if (patient) {
+    if (!profile.is_active) {
+      throw new ForbiddenException(ErrorMessages.FORBIDDEN_ROLE);
+    }
+
+    if (profile.role_alias === ProfileRoleAlias.PATIENT && profile.patient_id) {
+      await assertNotDeactivatedLocally(
+        this.dataSource.getRepository(PatientProfile),
+        profile.patient_id,
+      );
+
       request.actor = {
         uuid: user.uuid,
         username: user.username,
         name: user.name,
         role: ProfileRoleAlias.PATIENT,
-        patientId: patient.patient_id,
+        patientId: profile.patient_id,
         therapistId: 0,
       };
       return true;
     }
 
-    const therapist = await this.therapistRepository.findOne({
-      where: { user_id: user.uuid, is_active: true },
-      select: { therapist_id: true },
-    });
-
-    if (therapist) {
+    if (
+      profile.role_alias === ProfileRoleAlias.PHYSIOTHERAPIST &&
+      profile.physiotherapist_id
+    ) {
       request.actor = {
         uuid: user.uuid,
         username: user.username,
         name: user.name,
         role: ProfileRoleAlias.PHYSIOTHERAPIST,
         patientId: 0,
-        therapistId: therapist.therapist_id,
+        therapistId: profile.physiotherapist_id,
       };
       return true;
     }
 
-    // Sin perfil en este servicio el actor no puede operar sobre el dominio.
+    // Cuenta sin perfil de paciente ni de fisioterapeuta.
+    throw new ForbiddenException(ErrorMessages.FORBIDDEN_ROLE);
+  }
+
+  private async resolveProfile(userId: number): Promise<AuthUserProfile> {
+    try {
+      return await this.authClient.getUserProfile(userId);
+    } catch (error) {
+      // Usuario que ya no existe en auth: mismo tratamiento que "sin rol".
+      // El 503 (auth caido) si se propaga, porque ahi no hay nada que decidir.
+      if (error instanceof NotFoundException) {
+        throw new ForbiddenException(ErrorMessages.FORBIDDEN_ROLE);
+      }
+      throw error;
+    }
+  }
+}
+
+/** La baja local en `patient_profiles` bloquea al paciente. */
+async function assertNotDeactivatedLocally(
+  repository: Repository<PatientProfile>,
+  patientId: number,
+): Promise<void> {
+  const profile = await repository.findOne({
+    where: { patient_id: patientId },
+    select: { patient_id: true, is_active: true },
+  });
+
+  if (profile && !profile.is_active) {
     throw new ForbiddenException(ErrorMessages.FORBIDDEN_ROLE);
   }
 }

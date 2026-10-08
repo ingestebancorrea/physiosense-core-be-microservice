@@ -9,15 +9,14 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ClinicalRecordType } from 'src/common/enum/clinical.enum';
-import { Patient } from 'src/patient/entities/patient.entity';
-import { Therapist } from 'src/therapist/entities/therapist.entity';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
 
 /**
- * Nota del historial clínico.
+ * Nota del historial cl��nico.
  *
- * El diagnóstico del paciente NO vive acá: es una columna de `patients`
- * (`patients.diagnosis`) porque la app lo trata como dato de cabecera y lo
- * muestra read-only en la edición de perfil.
+ * El diagn��stico del paciente NO vive acǭ: es una columna de
+ * `patient_profiles` (`patient_profiles.diagnosis`) porque la app lo trata
+ * como dato de cabecera y lo muestra read-only en la edici��n de perfil.
  */
 @Entity('clinical_records')
 @Index('idx_clinical_records_patient_date', ['patient_id', 'recorded_at'])
@@ -28,18 +27,15 @@ export class ClinicalRecord {
   @Column({ type: 'int' })
   patient_id: number;
 
-  @ManyToOne(() => Patient, { onDelete: 'CASCADE' })
+  @ManyToOne(() => PatientProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: PatientProfile;
 
-  // NULL cuando el registro lo cargó un administrador o quedó sin autor tras
-  // dar de baja al fisioterapeuta.
+  // NULL cuando el registro lo carg�� un administrador o qued�� sin autor tras
+  // dar de baja al fisioterapeuta. Apunta a physiotherapists.physiotherapist_id
+  // (auth) y NO tiene FK: `therapists` no existe en esta base.
   @Column({ type: 'int', nullable: true })
   therapist_id: number;
-
-  @ManyToOne(() => Therapist, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'therapist_id' })
-  therapist: Therapist;
 
   @Column({
     type: 'enum',
