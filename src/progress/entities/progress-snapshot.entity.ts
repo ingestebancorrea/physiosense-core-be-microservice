@@ -10,7 +10,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { ProgressPeriod } from 'src/common/enum/progress.enum';
-import { Patient } from 'src/patient/entities/patient.entity';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
 
 /**
  * Fotografía agregada del progreso de un paciente en una ventana temporal.
@@ -36,9 +36,9 @@ export class ProgressSnapshot {
   @Column({ type: 'int' })
   patient_id: number;
 
-  @ManyToOne(() => Patient, { onDelete: 'CASCADE' })
+  @ManyToOne(() => PatientProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: PatientProfile;
 
   @Column({
     type: 'enum',
@@ -67,7 +67,8 @@ export class ProgressSnapshot {
   @Column({ type: 'numeric', precision: 6, scale: 2, nullable: true })
   minutes_delta_pct: number;
 
-  // Rango de movimiento en GRADOS (no el score 0-100 de patients.rom_score).
+  // Rango de movimiento en GRADOS (no el score 0-100 de
+  // patient_profiles.rom_score).
   @Column({ type: 'numeric', precision: 6, scale: 2, nullable: true })
   avg_rom_degrees: number;
 

@@ -8,7 +8,7 @@
  *   CONFIRM_DROP=yes npm run db:drop -> borra
  *
  * Preferí `npm run db:create` (`script-core.sql`), que además de borrar vuelve a
- * crear el esquema y valida que quedaron las 17 tablas. `db:drop` sirve para
+ * crear el esquema y valida que quedaron las 13 tablas. `db:drop` sirve para
  * dejar la base vacía sin volver a sembrar.
  */
 const confirmed =

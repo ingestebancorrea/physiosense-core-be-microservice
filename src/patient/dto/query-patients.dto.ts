@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
-import { PatientStatus } from '../entities/patient.entity';
+import { PatientStatus } from '../entities/patient-profile.entity';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 
 export class QueryPatientsDto extends PaginationDto {

@@ -32,14 +32,11 @@ import { PatientsService } from 'src/patient/patient.service';
 import {
   CreateAssessmentDto,
   CreateClinicalRecordDto,
-  CreateNotificationDto,
   QueryClinicalRecordsDto,
-  QueryNotificationsDto,
 } from './dto/clinical.dto';
 import {
   AssessmentResponseDto,
   ClinicalRecordResponseDto,
-  NotificationResponseDto,
 } from './dto/clinical-response.dto';
 import { ClinicalService } from './clinical.service';
 
@@ -184,49 +181,7 @@ export class ClinicalController {
     return this.clinicalService.completeAssessment(patientId, assessmentId);
   }
 
-  // ---------------------------------------------------------- notifications
-
-  @Get('notifications')
-  @ApiOperation({ summary: 'Notificaciones del usuario autenticado' })
-  findNotifications(
-    @Query() query: QueryNotificationsDto,
-    @CurrentActor() actor: Actor,
-  ) {
-    return this.clinicalService.findNotifications(actor.uuid, query);
-  }
-
-  @Get('notifications/unread-count')
-  @ApiOperation({
-    summary: 'Cantidad de no leídas',
-    description: 'Es lo que muestra el badge del dashboard.',
-  })
-  countUnread(@CurrentActor() actor: Actor) {
-    return this.clinicalService.countUnread(actor.uuid);
-  }
-
-  @Post('notifications')
-  @Roles(ProfileRoleAlias.PHYSIOTHERAPIST)
-  @ApiOperation({ summary: 'Emite una notificación' })
-  @ApiResponse({ status: 201, type: NotificationResponseDto })
-  createNotification(@Body() dto: CreateNotificationDto) {
-    return this.clinicalService.createNotification(dto);
-  }
-
-  @Patch('notifications/:id/read')
-  @ApiOperation({ summary: 'Marca una notificación como leída' })
-  @ApiResponse({ type: NotificationResponseDto })
-  markAsRead(
-    @Param('id', ParseIntPipe) id: number,
-    @CurrentActor() actor: Actor,
-  ) {
-    return this.clinicalService.markAsRead(actor.uuid, id);
-  }
-
-  @Patch('notifications/read-all')
-  @ApiOperation({ summary: 'Marca todas las notificaciones como leídas' })
-  markAllAsRead(@CurrentActor() actor: Actor) {
-    return this.clinicalService.markAllAsRead(actor.uuid);
-  }
+  // ------------------------------------------------------------- access
 
   /**
    * Un paciente sólo lee su propia ficha clínica; un fisioterapeuta, sólo la de

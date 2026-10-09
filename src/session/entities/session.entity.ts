@@ -10,8 +10,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { SessionStatus } from 'src/common/enum/session-status.enum';
-import { Patient } from 'src/patient/entities/patient.entity';
-import { Therapist } from 'src/therapist/entities/therapist.entity';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
 import { SessionExercise } from './session-exercise.entity';
 import { TreatmentPlan } from './treatment-plan.entity';
 
@@ -38,16 +37,14 @@ export class Session {
   @Column({ type: 'int' })
   patient_id: number;
 
-  @ManyToOne(() => Patient, { onDelete: 'CASCADE' })
+  @ManyToOne(() => PatientProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: PatientProfile;
 
+  // physiotherapists.physiotherapist_id de authentication-be-microservice.
+  // Sin relacion: `therapists` no existe en esta base (se resuelve por REST).
   @Column({ type: 'int' })
   therapist_id: number;
-
-  @ManyToOne(() => Therapist, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'therapist_id' })
-  therapist: Therapist;
 
   @Column({ type: 'varchar', length: 160 })
   title: string;

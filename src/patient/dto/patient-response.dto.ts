@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DominantHand } from 'src/common/enum/profile-role.enum';
-import { PatientStatus } from '../entities/patient.entity';
+import { PatientStatus } from '../entities/patient-profile.entity';
 
 /**
  * Ficha clínica del paciente.

@@ -7,11 +7,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ErrorMessages } from 'src/common/enum/error-messages.enum';
-import {
-  DEVICE_STATUS_LABEL,
-  DeviceStatus,
-  SMART_GLOVE_NAME,
-} from 'src/common/enum/device.enum';
 import { ExerciseMeasureUnit } from 'src/common/enum/exercise.enum';
 import { QualityLevel } from 'src/common/enum/execution.enum';
 import {
@@ -19,216 +14,36 @@ import {
   dominantQuality,
   qualityPercentage,
 } from 'src/common/services/quality.service';
-import { Session } from 'src/session/entities/session.entity';
 import { SessionExercise } from 'src/session/entities/session-exercise.entity';
+import { Session } from 'src/session/entities/session.entity';
 import { Exercise } from 'src/exercise/entities/exercise.entity';
-import { Patient } from 'src/patient/entities/patient.entity';
-import { Therapist } from 'src/therapist/entities/therapist.entity';
-import { Device } from './entities/device.entity';
-import { DeviceSession } from './entities/device-session.entity';
+import { AuthClient, AuthUserProfile } from 'src/common/services/auth-client.service';
+import { ProfileRoleAlias } from 'src/common/enum/profile-role.enum';
 import { RepetitionLog } from './entities/repetition-log.entity';
+import { IngestRepetitionsDto } from './dto/telemetry.dto';
 import {
-  ConnectDeviceDto,
-  DisconnectDeviceDto,
-  IngestRepetitionsDto,
-  RegisterDeviceDto,
-} from './dto/device.dto';
-import {
-  DeviceResponseDto,
-  DeviceSessionResponseDto,
   ExecutionSummaryDto,
   IngestResultDto,
   RepetitionLogResponseDto,
-} from './dto/device-response.dto';
+} from './dto/telemetry-response.dto';
 
 @Injectable()
-export class DeviceService {
+export class TelemetryService {
   constructor(
-    @InjectRepository(Device) private readonly deviceRepository: Repository<Device>,
-    @InjectRepository(DeviceSession)
-    private readonly deviceSessionRepository: Repository<DeviceSession>,
     @InjectRepository(RepetitionLog)
     private readonly logRepository: Repository<RepetitionLog>,
-    @InjectRepository(Session)
-    private readonly sessionRepository: Repository<Session>,
     @InjectRepository(SessionExercise)
     private readonly sessionExerciseRepository: Repository<SessionExercise>,
     @InjectRepository(Exercise)
     private readonly exerciseRepository: Repository<Exercise>,
-    @InjectRepository(Patient) private readonly patientRepository: Repository<Patient>,
-    @InjectRepository(Therapist)
-    private readonly therapistRepository: Repository<Therapist>,
+    private readonly authClient: AuthClient,
   ) {}
-
-  // ------------------------------------------------------------- devices
-
-  async register(dto: RegisterDeviceDto, ownerUserId: number): Promise<DeviceResponseDto> {
-    const existing = await this.deviceRepository.findOne({
-      where: { serial_number: dto.serial_number },
-    });
-
-    const device = existing
-      ? this.deviceRepository.merge(existing, {
-          name: dto.name ?? existing.name,
-          firmware_version: dto.firmware_version ?? existing.firmware_version,
-          owner_user_id: ownerUserId,
-          owner_patient_id: dto.owner_patient_id ?? existing.owner_patient_id,
-          last_seen_at: new Date(),
-        })
-      : this.deviceRepository.create({
-          serial_number: dto.serial_number,
-          name: dto.name ?? SMART_GLOVE_NAME,
-          firmware_version: dto.firmware_version ?? null,
-          status: dto.status ?? DeviceStatus.DISCONNECTED,
-          battery_level: dto.battery_level ?? null,
-          owner_user_id: ownerUserId,
-          owner_patient_id: dto.owner_patient_id ?? null,
-          last_seen_at: new Date(),
-        });
-
-    return this.toResponse(await this.deviceRepository.save(device));
-  }
-
-  async findAll(ownerUserId: number): Promise<DeviceResponseDto[]> {
-    const devices = await this.deviceRepository.find({
-      where: { owner_user_id: ownerUserId },
-      order: { last_seen_at: 'DESC' },
-    });
-
-    return devices.map((device) => this.toResponse(device));
-  }
-
-  async findOne(deviceId: number, ownerUserId: number): Promise<DeviceResponseDto> {
-    return this.toResponse(await this.loadOwned(deviceId, ownerUserId));
-  }
-
-  async updateStatus(
-    deviceId: number,
-    ownerUserId: number,
-    status: DeviceStatus,
-    batteryLevel?: number,
-  ): Promise<DeviceResponseDto> {
-    const device = await this.loadOwned(deviceId, ownerUserId);
-
-    device.status = status;
-    device.last_seen_at = new Date();
-
-    if (batteryLevel !== undefined) {
-      device.battery_level = batteryLevel;
-    }
-
-    return this.toResponse(await this.deviceRepository.save(device));
-  }
-
-  async remove(deviceId: number, ownerUserId: number): Promise<void> {
-    const device = await this.loadOwned(deviceId, ownerUserId);
-
-    await this.deviceRepository.remove(device);
-  }
-
-  // ------------------------------------------------------ device sessions
-
-  /**
-   * Abre una conexión del guante para una sesión.
-   *
-   * Si el guante ya tenía una conexión abierta de otra sesión, se cierra antes:
-   * el dispositivo sólo puede estar en una sesión a la vez.
-   */
-  async connect(
-    deviceId: number,
-    ownerUserId: number,
-    dto: ConnectDeviceDto,
-  ): Promise<DeviceSessionResponseDto> {
-    const device = await this.loadOwned(deviceId, ownerUserId);
-
-    const session = await this.sessionRepository.findOne({
-      where: { session_id: dto.session_id },
-    });
-
-    if (!session) {
-      throw new NotFoundException(ErrorMessages.SESSION_NOT_FOUND);
-    }
-
-    await this.closeOpenSessions(deviceId, dto.battery_start);
-
-    const deviceSession = await this.deviceSessionRepository.save(
-      this.deviceSessionRepository.create({
-        device_id: deviceId,
-        session_id: dto.session_id,
-        patient_id: session.patient_id,
-        battery_start: dto.battery_start ?? device.battery_level ?? null,
-      }),
-    );
-
-    device.status = DeviceStatus.CONNECTED;
-    device.last_seen_at = new Date();
-
-    if (dto.battery_start !== undefined) {
-      device.battery_level = dto.battery_start;
-    }
-
-    await this.deviceRepository.save(device);
-
-    return this.toSessionResponse(deviceSession);
-  }
-
-  async disconnect(
-    deviceId: number,
-    ownerUserId: number,
-    dto: DisconnectDeviceDto,
-  ): Promise<DeviceSessionResponseDto> {
-    const device = await this.loadOwned(deviceId, ownerUserId);
-
-    const open = await this.deviceSessionRepository.findOne({
-      where: { device_id: deviceId, disconnected_at: null },
-      order: { connected_at: 'DESC' },
-    });
-
-    if (!open) {
-      throw new NotFoundException(ErrorMessages.DEVICE_NOT_CONNECTED);
-    }
-
-    open.disconnected_at = new Date();
-
-    if (dto.battery_end !== undefined) {
-      open.battery_end = dto.battery_end;
-    }
-
-    await this.deviceSessionRepository.save(open);
-
-    device.status = DeviceStatus.DISCONNECTED;
-    device.last_seen_at = new Date();
-
-    if (dto.battery_end !== undefined) {
-      device.battery_level = dto.battery_end;
-    }
-
-    await this.deviceRepository.save(device);
-
-    return this.toSessionResponse(open);
-  }
-
-  async findDeviceSessions(
-    deviceId: number,
-    ownerUserId: number,
-  ): Promise<DeviceSessionResponseDto[]> {
-    await this.loadOwned(deviceId, ownerUserId);
-
-    const sessions = await this.deviceSessionRepository.find({
-      where: { device_id: deviceId },
-      order: { connected_at: 'DESC' },
-    });
-
-    return sessions.map((session) => this.toSessionResponse(session));
-  }
-
-  // ---------------------------------------------------------- telemetría
 
   /**
    * Persiste un lote de repeticiones y recalcula el resumen del ejercicio.
    *
    * Es idempotente por `(session_exercise_id, series_number, repetition_number)`:
-   * si el teléfono reintenta el envío, las repeteciones repetidas se descartan
+   * si el teléfono reintenta el envío, las repeticiones repetidas se descartan
    * en vez de duplicar el conteo.
    */
   async ingestRepetitions(
@@ -250,7 +65,7 @@ export class DeviceService {
       );
     }
 
-    // El guante es del paciente dueño de la sesión o del fisioterapia que la
+    // El guante es del paciente dueño de la sesión o del fisioterapeuta que la
     // supervisó, según quién esté reportando la telemetría.
     await this.assertSessionParticipant(sessionExercise.session, userId);
 
@@ -453,92 +268,39 @@ export class DeviceService {
     };
   }
 
-  private async closeOpenSessions(
-    deviceId: number,
-    batteryEnd?: number,
-  ): Promise<void> {
-    const open = await this.deviceSessionRepository.find({
-      where: { device_id: deviceId, disconnected_at: null },
-    });
-
-    if (open.length === 0) return;
-
-    for (const session of open) {
-      session.disconnected_at = new Date();
-
-      if (batteryEnd !== undefined) {
-        session.battery_end = batteryEnd;
-      }
-    }
-
-    await this.deviceSessionRepository.save(open);
-  }
-
-  /** El guante sólo lo usa el paciente de la sesión o su fisioterapeuta. */
+  /**
+   * El guante solo lo usa el paciente de la sesión o su fisioterapeuta.
+   *
+   * Ni `patients.user_id` ni `therapists.user_id` existen en esta base: el rol
+   * se resuelve contra auth con el `users.id` del token (cacheado 60 s).
+   */
   private async assertSessionParticipant(
     session: Session,
     userId: number,
   ): Promise<void> {
-    const [patient, therapist] = await Promise.all([
-      this.patientRepository.findOne({ where: { user_id: userId } }),
-      this.therapistRepository.findOne({ where: { user_id: userId } }),
-    ]);
+    const profile = await this.resolveUserProfile(userId);
 
     const isPatient =
-      patient !== null && patient.patient_id === session.patient_id;
+      profile.role_alias === ProfileRoleAlias.PATIENT &&
+      profile.patient_id === session.patient_id;
     const isTherapist =
-      therapist !== null && therapist.therapist_id === session.therapist_id;
+      profile.role_alias === ProfileRoleAlias.PHYSIOTHERAPIST &&
+      profile.physiotherapist_id === session.therapist_id;
 
     if (!isPatient && !isTherapist) {
       throw new ForbiddenException(ErrorMessages.PATIENT_NOT_ASSIGNED);
     }
   }
 
-  private async loadOwned(deviceId: number, ownerUserId: number): Promise<Device> {
-    const device = await this.deviceRepository.findOne({
-      where: { device_id: deviceId, owner_user_id: ownerUserId },
-    });
-
-    if (!device) {
-      throw new NotFoundException(ErrorMessages.DEVICE_NOT_FOUND);
+  /** Un 404 de auth significa usuario inexistente: no es participante. */
+  private async resolveUserProfile(userId: number): Promise<AuthUserProfile> {
+    try {
+      return await this.authClient.getUserProfile(userId);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new ForbiddenException(ErrorMessages.PATIENT_NOT_ASSIGNED);
+      }
+      throw error;
     }
-
-    return device;
-  }
-
-  private toResponse(device: Device): DeviceResponseDto {
-    return {
-      id: device.device_id,
-      serial_number: device.serial_number,
-      name: device.name,
-      firmware_version: device.firmware_version,
-      status: device.status,
-      statusLabel: DEVICE_STATUS_LABEL[device.status] ?? device.status,
-      battery_level: device.battery_level,
-      owner_user_id: device.owner_user_id,
-      owner_patient_id: device.owner_patient_id,
-      last_seen_at: device.last_seen_at,
-    };
-  }
-
-  private toSessionResponse(
-    session: DeviceSession,
-  ): DeviceSessionResponseDto {
-    const end = session.disconnected_at ?? new Date();
-
-    return {
-      id: session.device_session_id,
-      device_id: session.device_id,
-      session_id: session.session_id,
-      patient_id: session.patient_id,
-      connected_at: session.connected_at,
-      disconnected_at: session.disconnected_at,
-      battery_start: session.battery_start,
-      battery_end: session.battery_end,
-      durationMinutes: Math.max(
-        0,
-        Math.round((end.getTime() - session.connected_at.getTime()) / 60000),
-      ),
-    };
   }
 }

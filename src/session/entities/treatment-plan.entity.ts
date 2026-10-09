@@ -8,9 +8,8 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Patient } from 'src/patient/entities/patient.entity';
+import { PatientProfile } from 'src/patient/entities/patient-profile.entity';
 import { Session } from './session.entity';
-import { Therapist } from 'src/therapist/entities/therapist.entity';
 
 /**
  * Plan de tratamiento asignado a un paciente.
@@ -34,16 +33,13 @@ export class TreatmentPlan {
   @Column({ type: 'int' })
   patient_id: number;
 
-  @ManyToOne(() => Patient, { onDelete: 'CASCADE' })
+  @ManyToOne(() => PatientProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: PatientProfile;
 
+  // physiotherapists.physiotherapist_id de auth. Sin relacion ni FK.
   @Column({ type: 'int' })
   therapist_id: number;
-
-  @ManyToOne(() => Therapist, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'therapist_id' })
-  therapist: Therapist;
 
   // Opcional: un plan puede agrupar más de una sesión.
   @Column({ type: 'int', nullable: true })

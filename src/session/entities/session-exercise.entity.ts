@@ -12,7 +12,7 @@ import {
 } from 'typeorm';
 import { Exercise } from 'src/exercise/entities/exercise.entity';
 import { Session } from './session.entity';
-import { RepetitionLog } from 'src/device/entities/repetition-log.entity';
+import { RepetitionLog } from 'src/telemetry/entities/repetition-log.entity';
 
 /**
  * Ejercicio asignado dentro de una sesión.

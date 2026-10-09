@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -7,103 +6,150 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ErrorMessages } from 'src/common/enum/error-messages.enum';
-import { PATIENT_STATUS_LABEL, Patient, PatientStatus } from './entities/patient.entity';
+import {
+  AuthClient,
+  AuthPatientProfile,
+  AuthTherapistProfile,
+} from 'src/common/services/auth-client.service';
+import {
+  PATIENT_STATUS_LABEL,
+  PatientProfile,
+  PatientStatus,
+} from './entities/patient-profile.entity';
 import { TherapistPatient } from './entities/therapist-patient.entity';
-import { Therapist } from 'src/therapist/entities/therapist.entity';
 import { Session } from 'src/session/entities/session.entity';
 import { SessionStatus } from 'src/common/enum/session-status.enum';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { QueryPatientsDto } from './dto/query-patients.dto';
 import { PatientResponseDto } from './dto/patient-response.dto';
-import { AssignTherapistDto } from './dto/assign-therapist.dto';
+import {
+  AssignTherapistDto,
+  TherapistPatientResponseDto,
+} from './dto/assign-therapist.dto';
 import { PaginatedDto } from 'src/common/dto/pagination.dto';
 
+/**
+ * Pacientes de este servicio = identidad en auth + ficha clinica local.
+ *
+ * El cruce se hace en memoria: `AuthClient` trae las identidades (cache 60 s)
+ * y `patient_profiles` aporta lo clinico. Los filtros (estado, terapeuta,
+ * busqueda) y la paginacion se aplican sobre el cruce, porque el filtro por
+ * nombre no puede resolverse en SQL sin copiar el nombre a esta base.
+ *
+ * A escala de clinica el volumen es acotado; si alguna vez no lo fuera, el
+ * siguiente paso es paginar del lado de auth en vez de traer todo.
+ */
 @Injectable()
 export class PatientsService {
   constructor(
-    @InjectRepository(Patient) private readonly patientRepository: Repository<Patient>,
+    @InjectRepository(PatientProfile)
+    private readonly patientProfileRepository: Repository<PatientProfile>,
     @InjectRepository(TherapistPatient)
     private readonly assignmentRepository: Repository<TherapistPatient>,
-    @InjectRepository(Therapist) private readonly therapistRepository: Repository<Therapist>,
-    @InjectRepository(Session) private readonly sessionRepository: Repository<Session>,
+    @InjectRepository(Session)
+    private readonly sessionRepository: Repository<Session>,
+    private readonly authClient: AuthClient,
   ) {}
 
   /**
-   * Alta idempotente por `user_id`, pensada para que el servicio de
-   * autenticación la pueda llamar al registrarse el paciente.
+   * Crea la ficha clinica si no existe, sin tocar los campos ya cargados.
    *
-   * Si ya existe devuelve el registro existente en vez de fallar: el
-   * `user_id` es único y volver a sincronizar no debe ser un error.
+   * Es el ancla local de las foreign keys: `sessions`, `clinical_records`,
+   * `progress_snapshots`, etc. referencian `patient_profiles.patient_id`, así
+   * que todo write del dominio la garantiza antes de insertar.
    */
-  async sync(createPatientDto: CreatePatientDto): Promise<Patient> {
-    const existing = await this.patientRepository.findOne({
-      where: { user_id: createPatientDto.user_id },
-    });
-
-    if (existing) {
-      return this.update(existing.patient_id, createPatientDto);
-    }
-
-    const patient = this.patientRepository.create(createPatientDto);
-    return this.patientRepository.save(patient);
+  async ensureProfile(patientId: number): Promise<void> {
+    await this.patientProfileRepository
+      .createQueryBuilder()
+      .insert()
+      .values({ patient_id: patientId })
+      .orIgnore()
+      .execute();
   }
 
-  async create(createPatientDto: CreatePatientDto): Promise<Patient> {
-    const duplicate = await this.patientRepository.findOne({
-      where: { user_id: createPatientDto.user_id },
+  /**
+   * Crea la ficha clinica de un paciente que ya existe en auth.
+   *
+   * El `patient_id` es el de autenticacion: este servicio no da de alta
+   * identidades, solo recibe la referencia del perfil que ya esta dado de alta
+   * alla.
+   */
+  async create(createPatientDto: CreatePatientDto): Promise<PatientResponseDto> {
+    await this.authClient.assertPatient(createPatientDto.patient_id);
+
+    const duplicate = await this.patientProfileRepository.findOne({
+      where: { patient_id: createPatientDto.patient_id },
     });
 
     if (duplicate) {
       throw new ConflictException(ErrorMessages.DUPLICATED_RESOURCE);
     }
 
-    const patient = this.patientRepository.create(createPatientDto);
-    return this.patientRepository.save(patient);
+    const profile = this.patientProfileRepository.create(createPatientDto);
+    await this.patientProfileRepository.save(profile);
+
+    return this.findOne(createPatientDto.patient_id);
   }
 
   async findAll(query: QueryPatientsDto): Promise<PaginatedDto<PatientResponseDto>> {
-    const qb = this.patientRepository
-      .createQueryBuilder('patient')
-      .leftJoinAndSelect(
-        TherapistPatient,
-        'tp',
-        'tp.patient_id = patient.patient_id AND tp.is_primary = true',
-      )
-      .leftJoinAndSelect('tp.therapist', 'primary_therapist');
+    const identities = await this.authClient.getPatients();
 
-    if (query.status) {
-      qb.andWhere('patient.status = :status', { status: query.status });
-    }
-
+    let assignedIds: Set<number> | undefined;
     if (query.therapist_id) {
-      qb.andWhere(
-        'patient.patient_id IN (SELECT patient_id FROM therapist_patients WHERE therapist_id = :therapistId)',
-        { therapistId: query.therapist_id },
-      );
+      const assignments = await this.assignmentRepository.find({
+        where: { therapist_id: query.therapist_id },
+        select: { patient_id: true },
+      });
+      assignedIds = new Set(assignments.map((assignment) => assignment.patient_id));
     }
 
-    // La app busca por nombre O por id, en minúsculas.
-    if (query.search) {
-      qb.andWhere(
-        '(LOWER(patient.full_name) LIKE :search OR CAST(patient.patient_id AS TEXT) LIKE :search)',
-        { search: `%${query.search.toLowerCase()}%` },
-      );
-    }
+    const profiles = await this.patientProfileRepository.find();
+    const profileById = new Map(profiles.map((profile) => [profile.patient_id, profile]));
 
-    qb.orderBy('patient.full_name', 'ASC')
-      .skip(query.skip)
-      .take(query.limit);
+    const search = query.search?.toLowerCase();
 
-    const [rows, total] = await qb.getManyAndCount();
+    const matches = identities.filter((identity) => {
+      const profile = profileById.get(identity.patient_id);
 
-    // Los aggregates de "última sesión" son una consulta aparte: se piden
-    // siempre los mismos y sólo para la página actual.
-    const lastSessions = await this.lastSessionSummaries(rows.map((p) => p.patient_id));
+      if (assignedIds && !assignedIds.has(identity.patient_id)) return false;
+
+      if (
+        query.status &&
+        (profile?.status ?? PatientStatus.ACTIVE) !== query.status
+      ) {
+        return false;
+      }
+
+      if (search) {
+        const byName = identity.full_name.toLowerCase().includes(search);
+        const byId = String(identity.patient_id).includes(search);
+        if (!byName && !byId) return false;
+      }
+
+      return true;
+    });
+
+    matches.sort((a, b) => a.full_name.localeCompare(b.full_name));
+
+    const total = matches.length;
+    const rows = matches.slice(query.skip, query.skip + query.limit);
+
+    const lastSessions = await this.lastSessionSummaries(
+      rows.map((identity) => identity.patient_id),
+    );
+    const primaryTherapists = await this.primaryTherapistsOf(
+      rows.map((identity) => identity.patient_id),
+    );
 
     return {
-      items: rows.map((patient) =>
-        this.toResponse(patient, lastSessions.get(patient.patient_id)),
+      items: rows.map((identity) =>
+        this.toResponse(
+          identity,
+          profileById.get(identity.patient_id),
+          lastSessions.get(identity.patient_id),
+          primaryTherapists.get(identity.patient_id),
+        ),
       ),
       total,
       page: query.page,
@@ -126,119 +172,136 @@ export class PatientsService {
   }
 
   async findOne(patientId: number): Promise<PatientResponseDto> {
-    const patient = await this.patientRepository.findOne({
+    // Lanza 404 (PATIENT_NOT_FOUND) si el paciente no existe en auth.
+    const identity = await this.authClient.getPatient(patientId);
+
+    const profile = await this.patientProfileRepository.findOne({
       where: { patient_id: patientId },
-      relations: { therapist_assignments: { therapist: true } },
     });
 
-    if (!patient) {
-      throw new NotFoundException(ErrorMessages.PATIENT_NOT_FOUND);
-    }
-
-    const primary = patient.therapist_assignments?.find((a) => a.is_primary);
     const lastSessions = await this.lastSessionSummaries([patientId]);
+    const primaryTherapists = await this.primaryTherapistsOf([patientId]);
 
-    return this.toResponse(patient, lastSessions.get(patientId), primary?.therapist);
+    return this.toResponse(
+      identity,
+      profile,
+      lastSessions.get(patientId),
+      primaryTherapists.get(patientId),
+    );
   }
 
-  async update(patientId: number, updatePatientDto: UpdatePatientDto): Promise<Patient> {
-    const patient = await this.patientRepository.findOne({
+  async update(
+    patientId: number,
+    updatePatientDto: UpdatePatientDto,
+  ): Promise<PatientResponseDto> {
+    await this.authClient.assertPatient(patientId);
+    await this.ensureProfile(patientId);
+
+    const profile = await this.patientProfileRepository.findOne({
       where: { patient_id: patientId },
     });
 
-    if (!patient) {
+    if (!profile) {
       throw new NotFoundException(ErrorMessages.PATIENT_NOT_FOUND);
     }
 
-    // Defensa en profundidad: `UpdatePatientDto` ya omite `user_id` y el
-    // ValidationPipe rechaza la propiedad, pero si alguien reintroduce el campo
-    // en el DTO no debe poder re-apuntar el perfil a otra cuenta de auth.
-    const { user_id, ...safeData } = updatePatientDto;
-    Object.assign(patient, safeData);
+    Object.assign(profile, updatePatientDto);
+    await this.patientProfileRepository.save(profile);
 
-    return this.patientRepository.save(patient);
+    return this.findOne(patientId);
   }
 
+  /**
+   * Borra la ficha clinica local (uso administrativo).
+   *
+   * El historial clinico y de progreso se van en cascada por las foreign keys
+   * del esquema. La cuenta y el perfil en authentication-be-microservice no se
+   * tocan: este servicio no es dueno de ellos.
+   */
   async remove(patientId: number): Promise<void> {
-    const patient = await this.patientRepository.findOne({
+    const profile = await this.patientProfileRepository.findOne({
       where: { patient_id: patientId },
     });
 
-    if (!patient) {
+    if (!profile) {
       throw new NotFoundException(ErrorMessages.PATIENT_NOT_FOUND);
     }
 
-    await this.patientRepository.remove(patient);
+    await this.patientProfileRepository.remove(profile);
   }
 
   /**
    * Reemplaza el fisioterapeuta a cargo del paciente.
    *
-   * Desmarca el `is_primary` de los anteriores en la misma transacción para
+   * Desmarca el `is_primary` de los anteriores en la misma transaccion para
    * que un paciente nunca tenga dos fisioterapeutas principales.
    */
   async assignTherapist(
     patientId: number,
     dto: AssignTherapistDto,
-  ): Promise<TherapistPatient> {
-    const patient = await this.patientRepository.findOne({
-      where: { patient_id: patientId },
-    });
+  ): Promise<TherapistPatientResponseDto> {
+    await this.authClient.assertPatient(patientId);
+    const therapist = await this.authClient.assertTherapist(dto.therapist_id);
+    await this.ensureProfile(patientId);
 
-    if (!patient) {
-      throw new NotFoundException(ErrorMessages.PATIENT_NOT_FOUND);
-    }
+    const saved = await this.assignmentRepository.manager.transaction(
+      async (manager) => {
+        const assignments = manager.getRepository(TherapistPatient);
 
-    const therapist = await this.therapistRepository.findOne({
-      where: { therapist_id: dto.therapist_id },
-    });
+        if (dto.is_primary) {
+          await assignments.update(
+            { patient_id: patientId, is_primary: true },
+            { is_primary: false },
+          );
+        }
 
-    if (!therapist) {
-      throw new NotFoundException(ErrorMessages.THERAPIST_NOT_FOUND);
-    }
+        const existing = await assignments.findOne({
+          where: { patient_id: patientId, therapist_id: dto.therapist_id },
+        });
 
-    return this.assignmentRepository.manager.transaction(async (manager) => {
-      const assignments = manager.getRepository(TherapistPatient);
+        if (existing) {
+          existing.is_primary = dto.is_primary ?? existing.is_primary;
+          if (dto.notes !== undefined) existing.notes = dto.notes;
+          return assignments.save(existing);
+        }
 
-      if (dto.is_primary) {
-        await assignments.update(
-          { patient_id: patientId, is_primary: true },
-          { is_primary: false },
+        return assignments.save(
+          assignments.create({
+            patient_id: patientId,
+            therapist_id: dto.therapist_id,
+            is_primary: dto.is_primary ?? false,
+            notes: dto.notes ?? null,
+          }),
         );
-      }
+      },
+    );
 
-      const existing = await assignments.findOne({
-        where: { patient_id: patientId, therapist_id: dto.therapist_id },
-      });
-
-      if (existing) {
-        existing.is_primary = dto.is_primary ?? existing.is_primary;
-        if (dto.notes !== undefined) existing.notes = dto.notes;
-        return assignments.save(existing);
-      }
-
-      return assignments.save(
-        assignments.create({
-          patient_id: patientId,
-          therapist_id: dto.therapist_id,
-          is_primary: dto.is_primary ?? false,
-          notes: dto.notes ?? null,
-        }),
-      );
-    });
+    return this.toAssignmentResponse(saved, therapist.full_name);
   }
 
-  async listAssignments(patientId: number): Promise<TherapistPatient[]> {
-    return this.assignmentRepository.find({
+  async listAssignments(
+    patientId: number,
+  ): Promise<TherapistPatientResponseDto[]> {
+    const rows = await this.assignmentRepository.find({
       where: { patient_id: patientId },
-      relations: { therapist: true },
     });
+
+    const therapists = await this.authClient.getTherapistsByIds(
+      rows.map((row) => row.therapist_id),
+    );
+
+    return rows.map((row) =>
+      this.toAssignmentResponse(
+        row,
+        therapists.get(row.therapist_id)?.full_name ?? null,
+      ),
+    );
   }
 
   /**
-   * Verifica que el fisioterapeuta esté a cargo del paciente.
+   * Verifica que el fisioterapeuta este a cargo del paciente.
    *
-   * Se usa antes de crear o editar sesiones y registros clínicos, para que un
+   * Se usa antes de crear o editar sesiones y registros clinicos, para que un
    * FIS no pueda tocar la ficha de un paciente que no le corresponde.
    */
   async assertTherapistOwnsPatient(patientId: number, therapistId: number): Promise<void> {
@@ -251,7 +314,19 @@ export class PatientsService {
     }
   }
 
-  /** Edad en años a partir de `birth_date`. */
+  /**
+   * Verifica que el paciente exista en auth y garantiza su ficha clinica.
+   *
+   * Es el pre-requisito de todo write del dominio que referencia
+   * `patient_profiles` por foreign key.
+   */
+  async assertPatient(patientId: number): Promise<AuthPatientProfile> {
+    const identity = await this.authClient.assertPatient(patientId);
+    await this.ensureProfile(patientId);
+    return identity;
+  }
+
+  /** Edad en anos a partir de `birth_date`. */
   private calculateAge(birthDate?: string): number {
     if (!birthDate) return undefined;
 
@@ -270,7 +345,7 @@ export class PatientsService {
   }
 
   /**
-   * Resumen de la última sesión de cada paciente: total de ejercicios,
+   * Resumen de la ultima sesion de cada paciente: total de ejercicios,
    * ejecutados y timestamp.
    */
   private async lastSessionSummaries(
@@ -293,42 +368,88 @@ export class PatientsService {
     return map;
   }
 
+  /** Fisioterapeuta principal de cada paciente, con su identidad de auth. */
+  private async primaryTherapistsOf(
+    patientIds: number[],
+  ): Promise<Map<number, AuthTherapistProfile>> {
+    const map = new Map<number, AuthTherapistProfile>();
+    if (patientIds.length === 0) return map;
+
+    const assignments = await this.assignmentRepository.find({
+      where: { patient_id: In(patientIds), is_primary: true },
+    });
+
+    const therapists = await this.authClient.getTherapistsByIds(
+      assignments.map((assignment) => assignment.therapist_id),
+    );
+
+    for (const assignment of assignments) {
+      const therapist = therapists.get(assignment.therapist_id);
+      if (therapist) map.set(assignment.patient_id, therapist);
+    }
+
+    return map;
+  }
+
   private toResponse(
-    patient: Patient,
+    identity: AuthPatientProfile,
+    profile: PatientProfile | undefined | null,
     lastSession?: Session,
-    therapist?: Therapist,
+    primaryTherapist?: AuthTherapistProfile,
   ): PatientResponseDto {
-    const primaryTherapist = therapist ?? patient.therapist_assignments?.find((a) => a.is_primary)?.therapist;
+    const status = profile?.status ?? PatientStatus.ACTIVE;
 
     return {
-      id: patient.patient_id,
-      user_id: patient.user_id,
-      name: patient.full_name,
-      email: patient.email,
-      avatarUrl: patient.avatar_url,
-      age: this.calculateAge(patient.birth_date),
-      birthDate: patient.birth_date,
-      status: patient.status,
-      statusLabel: PATIENT_STATUS_LABEL[patient.status] ?? patient.status,
-      diagnosis: patient.diagnosis,
-      startDate: patient.start_date,
+      id: identity.patient_id,
+      user_id: identity.user_id,
+      name: identity.full_name,
+      email: identity.email,
+      avatarUrl: identity.avatar_url,
+      age: this.calculateAge(identity.birth_date),
+      birthDate: identity.birth_date,
+      status,
+      statusLabel: PATIENT_STATUS_LABEL[status] ?? status,
+      diagnosis: profile?.diagnosis ?? null,
+      startDate: profile?.start_date ?? null,
       therapistName: primaryTherapist?.full_name ?? null,
-      therapist_id: primaryTherapist?.therapist_id ?? null,
-      compliance: patient.compliance === null ? null : Number(patient.compliance),
-      rom: patient.rom_score === null ? null : Number(patient.rom_score),
-      strength: patient.strength_score === null ? null : Number(patient.strength_score),
-      phone: patient.phone,
-      dominantHand: patient.dominant_hand,
-      notes: patient.notes,
+      therapist_id: primaryTherapist?.physiotherapist_id ?? null,
+      compliance: profile?.compliance === undefined || profile?.compliance === null
+        ? null
+        : Number(profile.compliance),
+      rom: profile?.rom_score === undefined || profile?.rom_score === null
+        ? null
+        : Number(profile.rom_score),
+      strength: profile?.strength_score === undefined || profile?.strength_score === null
+        ? null
+        : Number(profile.strength_score),
+      phone: identity.phone,
+      dominantHand: identity.dominant_hand,
+      // Prioriza las notas locales (las del fisioterapeuta); si la ficha todavia
+      // no existe cae en las notas que el propio paciente dejo en auth.
+      notes: profile?.notes ?? identity.notes ?? null,
       lastSessionAt: lastSession?.scheduled_at ?? null,
       lastSessionTotalExercises: lastSession?.total_exercises ?? null,
       lastSessionCompletedExercises: this.completedExercisesOf(lastSession),
-      createdAt: patient.created_at,
-      updatedAt: patient.updated_at,
+      createdAt: profile?.created_at ?? null,
+      updatedAt: profile?.updated_at ?? null,
     };
   }
 
-  /** Ejercicios efetivamente completados en la sesión. */
+  private toAssignmentResponse(
+    assignment: TherapistPatient,
+    therapistName: string | null,
+  ): TherapistPatientResponseDto {
+    return {
+      assignment_id: assignment.assignment_id,
+      patient_id: assignment.patient_id,
+      therapist_id: assignment.therapist_id,
+      therapist_name: therapistName,
+      is_primary: assignment.is_primary,
+      assigned_at: assignment.assigned_at,
+    };
+  }
+
+  /** Ejercicios efetivamente completados en la sesion. */
   private completedExercisesOf(session?: Session): number | null {
     if (!session) return null;
     return session.exercises
@@ -339,37 +460,35 @@ export class PatientsService {
   /**
    * Marca al paciente como inactivo en vez de borrarlo.
    *
-   * El historial clínico y de progreso no se puede eliminar: se usa el
+   * El historial clinico y de progreso no se puede eliminar: se usa el
    * deactivate en el controller.
    */
-  async deactivate(patientId: number): Promise<Patient> {
-    const patient = await this.patientRepository.findOne({
-      where: { patient_id: patientId },
-    });
-
-    if (!patient) {
-      throw new NotFoundException(ErrorMessages.PATIENT_NOT_FOUND);
-    }
-
-    patient.status = PatientStatus.INACTIVE;
-    patient.is_active = false;
-
-    return this.patientRepository.save(patient);
+  async deactivate(patientId: number): Promise<PatientResponseDto> {
+    await this.setActive(patientId, false);
+    return this.findOne(patientId);
   }
 
-  async activate(patientId: number): Promise<Patient> {
-    const patient = await this.patientRepository.findOne({
+  async activate(patientId: number): Promise<PatientResponseDto> {
+    await this.setActive(patientId, true);
+    return this.findOne(patientId);
+  }
+
+  private async setActive(patientId: number, isActive: boolean): Promise<void> {
+    await this.authClient.assertPatient(patientId);
+    await this.ensureProfile(patientId);
+
+    const profile = await this.patientProfileRepository.findOne({
       where: { patient_id: patientId },
     });
 
-    if (!patient) {
+    if (!profile) {
       throw new NotFoundException(ErrorMessages.PATIENT_NOT_FOUND);
     }
 
-    patient.status = PatientStatus.ACTIVE;
-    patient.is_active = true;
+    profile.status = isActive ? PatientStatus.ACTIVE : PatientStatus.INACTIVE;
+    profile.is_active = isActive;
 
-    return this.patientRepository.save(patient);
+    await this.patientProfileRepository.save(profile);
   }
 
   /** Pacientes del fisioterapeuta, para la pantalla "mis pacientes". */
@@ -388,14 +507,5 @@ export class PatientsService {
         status: In([SessionStatus.DRAFT, SessionStatus.SCHEDULED, SessionStatus.IN_PROGRESS]),
       },
     });
-  }
-
-  assertBirthDate(birthDate: string): void {
-    const parsed = new Date(`${birthDate}T00:00:00.000Z`);
-    const min = new Date('1900-01-01T00:00:00.000Z');
-
-    if (Number.isNaN(parsed.getTime()) || parsed > new Date() || parsed < min) {
-      throw new BadRequestException(ErrorMessages.INVALID_DATE_RANGE);
-    }
   }
 }
