@@ -14,6 +14,10 @@ import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
  * Comparte `JWT_SECRET` con ese servicio: este microservicio no emite tokens,
  * solo los valida. `algorithms: ['HS256']` evita que un token firmado con otro
  * algoritmo (por ejemplo "none") sea aceptado.
+ *
+ * El token ya trae el rol y los ids de perfil, asi que aca solo se verifica la
+ * firma y se deja el payload completo en `request.user`. `ActorGuard` es quien
+ * lo mapea a `request.actor`.
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {

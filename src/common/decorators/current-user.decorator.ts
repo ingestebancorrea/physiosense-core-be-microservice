@@ -2,7 +2,8 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { Actor, AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 /**
- * Claims del token, sin resolver el rol. Solo lo que viene en el JWT.
+ * Claims del token tal cual vienen en el JWT
+ * (`uuid`, `username`, `name`, `role_alias`, `patient_id`, ...).
  */
 export const CurrentUser = createParamDecorator(
   (_data: unknown, context: ExecutionContext): AuthenticatedUser => {
@@ -12,7 +13,7 @@ export const CurrentUser = createParamDecorator(
 );
 
 /**
- * Actor con el rol ya resuelto contra authentication-be-microservice.
+ * Actor con el rol e ids ya mapeados desde los claims del token.
  *
  * `request.actor` lo arma `ActorGuard`, así que el endpoint tiene que declararlo.
  */
