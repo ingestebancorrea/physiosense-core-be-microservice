@@ -427,6 +427,7 @@ export class PatientsService {
       // Prioriza las notas locales (las del fisioterapeuta); si la ficha todavia
       // no existe cae en las notas que el propio paciente dejo en auth.
       notes: profile?.notes ?? identity.notes ?? null,
+      isActive: profile?.is_active ?? true,
       lastSessionAt: lastSession?.scheduled_at ?? null,
       lastSessionTotalExercises: lastSession?.total_exercises ?? null,
       lastSessionCompletedExercises: this.completedExercisesOf(lastSession),

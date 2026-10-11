@@ -22,6 +22,7 @@ import { CurrentActor } from 'src/common/decorators/current-user.decorator';
 import { ProfileRoleAlias } from 'src/common/enum/profile-role.enum';
 import { Actor } from 'src/common/interfaces/authenticated-user.interface';
 import { ErrorMessages } from 'src/common/enum/error-messages.enum';
+import { SwaggerMessages } from 'src/common/enum/swagger-messages.enum';
 import { ForbiddenException } from '@nestjs/common';
 import { PatientResponseDto } from './dto/patient-response.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
@@ -46,6 +47,11 @@ export class PatientsController {
       'se recibe su patient_id y los campos clinicos (diagnostico, scores, notas).',
   })
   @ApiResponse({ status: 201, type: PatientResponseDto })
+  @ApiResponse({ status: 400, description: SwaggerMessages.BAD_REQUEST })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 404, description: SwaggerMessages.PATIENT_NOT_FOUND })
+  @ApiResponse({ status: 409, description: SwaggerMessages.DUPLICATED_RESOURCE })
   create(@Body() createPatientDto: CreatePatientDto) {
     return this.patientsService.create(createPatientDto);
   }
@@ -56,6 +62,9 @@ export class PatientsController {
     description:
       'Un PAC ve únicamente su propia ficha. Un FIS ve todos los pacientes y usa GET /patients/mine para los suyos.',
   })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 503, description: SwaggerMessages.AUTH_SERVICE_UNAVAILABLE })
   findAll(@Query() query: QueryPatientsDto, @CurrentActor() actor: Actor) {
     if (actor.role === ProfileRoleAlias.PATIENT) {
       return this.patientsService.findOwnPatient(actor.patientId);
@@ -67,6 +76,9 @@ export class PatientsController {
   @Get('mine')
   @Roles(ProfileRoleAlias.PHYSIOTHERAPIST)
   @ApiOperation({ summary: 'Pacientes asignados al fisioterapeuta autenticado' })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 503, description: SwaggerMessages.AUTH_SERVICE_UNAVAILABLE })
   findMine(@Query() query: QueryPatientsDto, @CurrentActor() actor: Actor) {
     return this.patientsService.findByTherapist(actor.therapistId, query);
   }
@@ -74,6 +86,10 @@ export class PatientsController {
   @Get(':id')
   @ApiOperation({ summary: 'Detalle de un paciente' })
   @ApiResponse({ status: 200, type: PatientResponseDto })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 404, description: SwaggerMessages.PATIENT_NOT_FOUND })
+  @ApiResponse({ status: 503, description: SwaggerMessages.AUTH_SERVICE_UNAVAILABLE })
   async findOne(@Param('id', ParseIntPipe) id: number, @CurrentActor() actor: Actor) {
     if (actor.role === ProfileRoleAlias.PATIENT) {
       if (actor.patientId !== id) {
@@ -89,6 +105,10 @@ export class PatientsController {
   @Patch(':id')
   @Roles(ProfileRoleAlias.PHYSIOTHERAPIST)
   @ApiOperation({ summary: 'Actualiza parcialmente la ficha clínica' })
+  @ApiResponse({ status: 400, description: SwaggerMessages.BAD_REQUEST })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 404, description: SwaggerMessages.PATIENT_NOT_FOUND })
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updatePatientDto: UpdatePatientDto,
@@ -101,6 +121,10 @@ export class PatientsController {
   @Put(':id/therapist')
   @Roles(ProfileRoleAlias.PHYSIOTHERAPIST)
   @ApiOperation({ summary: 'Asigna el fisioterapeuta a cargo del paciente' })
+  @ApiResponse({ status: 400, description: SwaggerMessages.BAD_REQUEST })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 404, description: SwaggerMessages.PATIENT_NOT_FOUND })
   assignTherapist(
     @Param('id', ParseIntPipe) id: number,
     @Body() assignTherapistDto: AssignTherapistDto,
@@ -110,6 +134,10 @@ export class PatientsController {
 
   @Get(':id/therapist')
   @ApiOperation({ summary: 'Fisioterapeutas del paciente' })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 404, description: SwaggerMessages.PATIENT_NOT_FOUND })
+  @ApiResponse({ status: 503, description: SwaggerMessages.AUTH_SERVICE_UNAVAILABLE })
   listAssignments(@Param('id', ParseIntPipe) id: number) {
     return this.patientsService.listAssignments(id);
   }
@@ -121,6 +149,9 @@ export class PatientsController {
     description:
       'No borra nada: el historial clínico y de progreso debe conservarse para auditoría.',
   })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 404, description: SwaggerMessages.PATIENT_NOT_FOUND })
   deactivate(@Param('id', ParseIntPipe) id: number) {
     return this.patientsService.deactivate(id);
   }
@@ -128,6 +159,9 @@ export class PatientsController {
   @Put(':id/activate')
   @Roles(ProfileRoleAlias.PHYSIOTHERAPIST)
   @ApiOperation({ summary: 'Reactiva un paciente dado de baja' })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 404, description: SwaggerMessages.PATIENT_NOT_FOUND })
   activate(@Param('id', ParseIntPipe) id: number) {
     return this.patientsService.activate(id);
   }
@@ -136,6 +170,9 @@ export class PatientsController {
   @Roles(ProfileRoleAlias.PHYSIOTHERAPIST)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Elimina la ficha clínica (uso administrativo)' })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 404, description: SwaggerMessages.PATIENT_NOT_FOUND })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.patientsService.remove(id);
   }
