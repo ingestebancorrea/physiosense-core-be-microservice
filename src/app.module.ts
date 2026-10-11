@@ -22,6 +22,7 @@ import { ENTITIES } from 'src/database/entities';
       useFactory: (config: ConfigService) => ({
         type: 'postgres' as const,
         url: config.get<string>('DATABASE_URL'),
+        schema: config.get<string>('DB_SCHEMA') || undefined,
         entities: ENTITIES,
         // El esquema lo crea `script-core.sql`. `synchronize` queda apagado a
         // propósito: el script es la fuente de verdad y TypeORM no debe
