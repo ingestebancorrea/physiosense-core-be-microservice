@@ -70,6 +70,12 @@ export class PatientResponseDto {
   @ApiPropertyOptional()
   notes: string;
 
+  @ApiProperty({
+    example: true,
+    description: 'Baja local en patient_profiles; no es el is_active de auth',
+  })
+  isActive: boolean;
+
   @ApiPropertyOptional({ example: 8, description: 'Ejercicios completados en la última sesión' })
   lastSessionCompletedExercises: number;
 
