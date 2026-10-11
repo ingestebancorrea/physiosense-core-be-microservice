@@ -31,10 +31,15 @@ async function dropSchema(): Promise<void> {
 
   await AppDataSource.initialize();
 
+  const schema =
+    (AppDataSource.options as { schema?: string }).schema || 'public';
+
   try {
-    await AppDataSource.query('DROP SCHEMA IF EXISTS public CASCADE;');
-    await AppDataSource.query('CREATE SCHEMA public;');
-    console.log('Esquema public borrado. Corre `npm run db:create` para recrearlo.');
+    await AppDataSource.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE;`);
+    await AppDataSource.query(`CREATE SCHEMA "${schema}";`);
+    console.log(
+      `Esquema ${schema} borrado. Corre \`npm run db:create\` para recrearlo.`,
+    );
   } finally {
     await AppDataSource.destroy();
   }
