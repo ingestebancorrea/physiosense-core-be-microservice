@@ -28,6 +28,7 @@ if (!databaseUrl) {
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: databaseUrl,
+  schema: process.env.DB_SCHEMA || undefined,
   entities: ENTITIES,
   synchronize: false,
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
