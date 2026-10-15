@@ -1,4 +1,10 @@
-import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -19,6 +25,8 @@ import {
 } from 'src/common/services/auth-client.service';
 import { PatientListResponseDto } from './dto/patient-list-response.dto';
 import { TherapistsService } from './therapist.service';
+import { PatientsService } from 'src/patient/patient.service';
+import { PatientResponseDto } from 'src/patient/dto/patient-response.dto';
 
 /**
  * Lectura del fisioterapeuta.
@@ -30,6 +38,9 @@ import { TherapistsService } from './therapist.service';
  *
  * Los pacientes asignados se leen de lo local (`therapist_patients` +
  * `patient_profiles`) y la identidad se completa por lote con `AuthClient`.
+ *
+ * Además, este controller expone un endpoint para actualizar la ficha clínica
+ * de un paciente asignado al fisioterapeuta autenticado.
  */
 @ApiTags('therapists')
 @ApiBearerAuth()
@@ -39,6 +50,7 @@ export class TherapistsController {
   constructor(
     private readonly authClient: AuthClient,
     private readonly therapistsService: TherapistsService,
+    private readonly patientsService: PatientsService,
   ) {}
 
   @Get('profile')
@@ -67,6 +79,26 @@ export class TherapistsController {
   @ApiResponse({ status: 503, description: SwaggerMessages.AUTH_SERVICE_UNAVAILABLE })
   findMyPatients(@CurrentActor() actor: Actor) {
     return this.therapistsService.getPatientsByTherapist(actor.therapistId);
+  }
+
+  @Get('patients/:id')
+  @Roles(ProfileRoleAlias.PHYSIOTHERAPIST)
+  @ApiOperation({
+    summary: 'Detalle de un paciente asignado al fisioterapeuta',
+    description:
+      'Verifica que el paciente esté asignado al fisioterapeuta autenticado y ' +
+      'devuelve su ficha clínica completa con los datos de identidad fusionados.',
+  })
+  @ApiResponse({ status: 200, type: PatientResponseDto })
+  @ApiResponse({ status: 401, description: SwaggerMessages.NOT_VALID_TOKEN })
+  @ApiResponse({ status: 403, description: SwaggerMessages.FORBIDDEN_ROLE })
+  @ApiResponse({ status: 404, description: SwaggerMessages.PATIENT_NOT_FOUND })
+  async findPatientById(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentActor() actor: Actor,
+  ) {
+    await this.patientsService.assertTherapistOwnsPatient(id, actor.therapistId);
+    return this.patientsService.findOne(id);
   }
 
   @Get(':id')

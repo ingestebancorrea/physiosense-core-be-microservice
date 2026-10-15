@@ -1,0 +1,431 @@
+### ╔══════════════════════════════════════════════════════════════╗
+### ║  PhysioSense Core API — Guía de Endpoints                  ║
+### ║  Base URL: http://localhost:3000/api/v1                    ║
+### ║  Auth: Bearer Token (JWT)                                  ║
+### ╚══════════════════════════════════════════════════════════════╝
+
+@host = http://localhost:3000/api/v1
+@baseUrl = {{host}}
+@token = TU_ACCESS_TOKEN_AQUI
+@patientId = 1
+@sessionId = 1
+@exerciseRef = EX-001
+@therapistId = 1
+@recordId = 1
+@assessmentId = 1
+@planId = 1
+@sessionExerciseId = 1
+
+### ──────────────────────────────────────────────────────────────
+### Todos los endpoints requieren:
+###   Authorization: Bearer <access_token>
+###
+### El access_token se obtiene del microservicio de autenticación
+### y dura 15 minutos.
+###
+### Roles:
+###   - PHYSIOTHERAPIST (FIS) → fisioterapeuta
+###   - PATIENT (PAC)        → paciente
+### ──────────────────────────────────────────────────────────────
+
+
+# ═══════════════════════════════════════════════════════════════
+# 🩺 PACIENTES
+# ═══════════════════════════════════════════════════════════════
+
+### Listar todos los pacientes (FIS ve todos, PAC ve solo su ficha)
+GET {{baseUrl}}/patients
+Authorization: Bearer {{token}}
+
+### Obtener pacientes asignados al fisioterapeuta autenticado
+GET {{baseUrl}}/patients/mine
+Authorization: Bearer {{token}}
+
+### Obtener detalle de un paciente
+GET {{baseUrl}}/patients/{{patientId}}
+Authorization: Bearer {{token}}
+
+### Crear ficha clínica de paciente
+POST {{baseUrl}}/patients
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userId": 100,
+  "firstName": "Juan",
+  "lastName": "Pérez",
+  "birthDate": "1985-03-15",
+  "gender": "M",
+  "phone": "+52 555 123 4567",
+  "email": "juan.perez@email.com",
+  "address": "Calle Falsa 123, CDMX",
+  "diagnosis": "Lumbalgia crónica",
+  "medicalHistory": "Cirugía lumbar 2020",
+  "currentMedication": "Ibuprofeno 400mg",
+  "therapistId": {{therapistId}}
+}
+
+### Actualizar parcialmente la ficha clínica
+PATCH {{baseUrl}}/patients/{{patientId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "phone": "+52 555 987 6543",
+  "currentMedication": "Paracetamol 500mg"
+}
+
+### Asignar fisioterapeuta a cargo
+PUT {{baseUrl}}/patients/{{patientId}}/therapist
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "therapistId": {{therapistId}}
+}
+
+### Obtener fisioterapeutas asignados al paciente
+GET {{baseUrl}}/patients/{{patientId}}/therapist
+Authorization: Bearer {{token}}
+
+### Dar de baja un paciente (baja lógica)
+PUT {{baseUrl}}/patients/{{patientId}}/deactivate
+Authorization: Bearer {{token}}
+
+### Reactivar un paciente dado de baja
+PUT {{baseUrl}}/patients/{{patientId}}/activate
+Authorization: Bearer {{token}}
+
+### Eliminar ficha clínica (uso administrativo)
+DELETE {{baseUrl}}/patients/{{patientId}}
+Authorization: Bearer {{token}}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 🏋️ EJERCICIOS
+# ═══════════════════════════════════════════════════════════════
+
+### Listar catálogo de ejercicios
+GET {{baseUrl}}/exercises
+Authorization: Bearer {{token}}
+
+### Obtener categorías disponibles
+GET {{baseUrl}}/exercises/categories
+Authorization: Bearer {{token}}
+
+### Obtener ejercicio por código estable
+GET {{baseUrl}}/exercises/code/EX-001
+Authorization: Bearer {{token}}
+
+### Obtener ejercicio por código o ID numérico
+GET {{baseUrl}}/exercises/{{exerciseRef}}
+Authorization: Bearer {{token}}
+
+### Crear un ejercicio
+POST {{baseUrl}}/exercises
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "code": "EX-001",
+  "name": "Flexión de rodilla",
+  "description": "Flexión activa de rodilla en decúbito supino",
+  "category": "FORTALECIMIENTO",
+  "bodyRegion": "RODILLA",
+  "difficulty": "BASICO",
+  "targetReps": 15,
+  "targetSets": 3,
+  "durationSeconds": 60,
+  "instructions": "Acostado boca arriba, flexionar la rodilla lentamente",
+  "contraindications": "Dolor agudo, inflamación activa"
+}
+
+### Actualizar un ejercicio
+PUT {{baseUrl}}/exercises/{{exerciseRef}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Flexión de rodilla modificada",
+  "targetReps": 20
+}
+
+### Dar de baja un ejercicio (baja lógica)
+PATCH {{baseUrl}}/exercises/{{exerciseRef}}/deactivate
+Authorization: Bearer {{token}}
+
+### Subir video de ejercicio (máx 100 MB)
+POST {{baseUrl}}/exercises/media/video
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="exerciseRef"
+
+{{exerciseRef}}
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="video.mp4"
+Content-Type: video/mp4
+
+< ./video.mp4
+--WebAppBoundary--
+
+### Subir imagen de portada (máx 5 MB)
+POST {{baseUrl}}/exercises/media/image
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="exerciseRef"
+
+{{exerciseRef}}
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="imagen.jpg"
+Content-Type: image/jpeg
+
+< ./imagen.jpg
+--WebAppBoundary--
+
+
+# ═══════════════════════════════════════════════════════════════
+# 📅 SESIONES
+# ═══════════════════════════════════════════════════════════════
+
+### Listar sesiones (FIS ve todas, PAC ve las suyas)
+GET {{baseUrl}}/sessions
+Authorization: Bearer {{token}}
+
+### Obtener sesiones del paciente autenticado
+GET {{baseUrl}}/sessions/mine
+Authorization: Bearer {{token}}
+
+### Obtener detalle de una sesión
+GET {{baseUrl}}/sessions/{{sessionId}}
+Authorization: Bearer {{token}}
+
+### Crear una sesión de tratamiento
+POST {{baseUrl}}/sessions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "patientId": {{patientId}},
+  "exerciseRef": "{{exerciseRef}}",
+  "scheduledDate": "2026-10-15T10:00:00.000Z",
+  "notes": "Sesión de fortalecimiento"
+}
+
+### Actualizar una sesión
+PUT {{baseUrl}}/sessions/{{sessionId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "notes": "Sesión actualizada",
+  "scheduledDate": "2026-10-16T14:00:00.000Z"
+}
+
+### Arrancar ejecución de sesión (PAC)
+POST {{baseUrl}}/sessions/{{sessionId}}/start
+Authorization: Bearer {{token}}
+
+### Completar sesión (recalcula progreso)
+PATCH {{baseUrl}}/sessions/{{sessionId}}/complete
+Authorization: Bearer {{token}}
+
+### Cancelar sesión
+PATCH {{baseUrl}}/sessions/{{sessionId}}/cancel
+Authorization: Bearer {{token}}
+
+### ── Planes de tratamiento ──
+
+### Obtener planes de tratamiento de un paciente
+GET {{baseUrl}}/sessions/plans/{{patientId}}
+Authorization: Bearer {{token}}
+
+### Obtener plan activo de un paciente
+GET {{baseUrl}}/sessions/plans/{{patientId}}/active
+Authorization: Bearer {{token}}
+
+### Crear plan de tratamiento
+POST {{baseUrl}}/sessions/plans
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "patientId": {{patientId}},
+  "name": "Plan de rehabilitación lumbar",
+  "description": "Plan de 4 semanas para fortalecimiento lumbar",
+  "startDate": "2026-10-12",
+  "endDate": "2026-11-09",
+  "exercises": [
+    { "exerciseRef": "EX-001", "sets": 3, "reps": 15, "restSeconds": 60 },
+    { "exerciseRef": "EX-002", "sets": 3, "reps": 12, "restSeconds": 45 }
+  ]
+}
+
+### Dar de baja un plan de tratamiento
+PATCH {{baseUrl}}/sessions/plans/{{planId}}/deactivate
+Authorization: Bearer {{token}}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 📊 TELEMETRÍA
+# ═══════════════════════════════════════════════════════════════
+
+### Ingesta de lote de repeticiones (idempotente)
+POST {{baseUrl}}/telemetry
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "sessionExerciseId": {{sessionExerciseId}},
+  "repetitions": [
+    { "serie": 1, "repNumber": 1, "angle": 45.2, "force": 12.5, "timestamp": "2026-10-12T10:00:01.000Z" },
+    { "serie": 1, "repNumber": 2, "angle": 47.8, "force": 13.1, "timestamp": "2026-10-12T10:00:03.000Z" },
+    { "serie": 1, "repNumber": 3, "angle": 44.5, "force": 11.9, "timestamp": "2026-10-12T10:00:05.000Z" }
+  ]
+}
+
+### Obtener repeticiones de un ejercicio
+GET {{baseUrl}}/telemetry/{{sessionExerciseId}}
+Authorization: Bearer {{token}}
+
+### Obtener resumen de ejecución de un ejercicio
+GET {{baseUrl}}/telemetry/{{sessionExerciseId}}/summary
+Authorization: Bearer {{token}}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 📈 PROGRESO
+# ═══════════════════════════════════════════════════════════════
+
+### Obtener ventana de progreso (gráficos)
+GET {{baseUrl}}/progress/{{patientId}}
+Authorization: Bearer {{token}}
+
+### Obtener múltiples ventanas (carrusel de la app)
+GET {{baseUrl}}/progress/{{patientId}}/windows
+Authorization: Bearer {{token}}
+
+### Obtener historial de sesiones del paciente
+GET {{baseUrl}}/progress/{{patientId}}/records
+Authorization: Bearer {{token}}
+
+### Detalle de una sesión para pantalla de progreso
+GET {{baseUrl}}/progress/{{patientId}}/sessions/{{sessionId}}
+Authorization: Bearer {{token}}
+
+### Obtener snapshots agregados
+GET {{baseUrl}}/progress/{{patientId}}/snapshots
+Authorization: Bearer {{token}}
+
+### Materializar snapshot de la ventana actual
+POST {{baseUrl}}/progress/{{patientId}}/snapshots
+Authorization: Bearer {{token}}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 🩺 CLÍNICO (Historial y Evaluaciones)
+# ═══════════════════════════════════════════════════════════════
+
+### Obtener historial clínico del paciente
+GET {{baseUrl}}/patients/{{patientId}}/records
+Authorization: Bearer {{token}}
+
+### Obtener detalle de una nota clínica
+GET {{baseUrl}}/patients/{{patientId}}/records/{{recordId}}
+Authorization: Bearer {{token}}
+
+### Agregar nota al historial clínico
+POST {{baseUrl}}/patients/{{patientId}}/records
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "note": "El paciente muestra mejora en rango de movimiento",
+  "type": "EVOLUCION"
+}
+
+### Eliminar una nota clínica
+DELETE {{baseUrl}}/patients/{{patientId}}/records/{{recordId}}
+Authorization: Bearer {{token}}
+
+### ── Evaluaciones ──
+
+### Obtener evaluaciones del paciente
+GET {{baseUrl}}/patients/{{patientId}}/assessments
+Authorization: Bearer {{token}}
+
+### Obtener contador de evaluaciones pendientes
+GET {{baseUrl}}/assessments/pending
+Authorization: Bearer {{token}}
+
+### Obtener detalle de una evaluación
+GET {{baseUrl}}/patients/{{patientId}}/assessments/{{assessmentId}}
+Authorization: Bearer {{token}}
+
+### Registrar evaluación clínica
+POST {{baseUrl}}/patients/{{patientId}}/assessments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "type": "INICIAL",
+  "painLevel": 6,
+  "mobilityScore": 45,
+  "strengthScore": 30,
+  "notes": "Evaluación inicial post-cirugía"
+}
+
+### Marcar evaluación como completada
+PATCH {{baseUrl}}/patients/{{patientId}}/assessments/{{assessmentId}}/complete
+Authorization: Bearer {{token}}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 👨‍⚕️ FISIOTERAPEUTAS
+# ═══════════════════════════════════════════════════════════════
+
+### Obtener perfil del fisioterapeuta autenticado
+GET {{baseUrl}}/therapists/profile
+Authorization: Bearer {{token}}
+
+### Obtener pacientes asignados al fisioterapeuta
+GET {{baseUrl}}/therapists/patients
+Authorization: Bearer {{token}}
+
+### Obtener detalle de un fisioterapeuta
+GET {{baseUrl}}/therapists/{{therapistId}}
+Authorization: Bearer {{token}}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 📋 NOTAS IMPORTANTES
+# ═══════════════════════════════════════════════════════════════
+#
+# 1. El servidor corre con: npm run start:dev
+#    Puerto: 3000 (configurable vía PORT en .env)
+#
+# 2. Todos los endpoints requieren:
+#      Authorization: Bearer <access_token>
+#
+# 3. El access_token se obtiene del microservicio de autenticación
+#    y dura 15 minutos.
+#
+# 4. Roles:
+#      - PHYSIOTHERAPIST → acceso completo a pacientes, ejercicios, sesiones
+#      - PATIENT        → acceso solo a sus propios datos
+#
+# 5. Validación estricta: el servidor rechaza campos no definidos en los DTOs.
+#
+# 6. Baja lógica: pacientes y ejercicios se desactivan, no se borran.
+#
+# 7. Telemetría idempotente: no duplica repeticiones con misma clave
+#    (session_exercise, serie, repetición).
+#
+# 8. Swagger UI disponible en: http://localhost:3000/api
+#
+# 9. Archivos estáticos (media) en: http://localhost:3000/media/
+#
+# ═══════════════════════════════════════════════════════════════
