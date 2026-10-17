@@ -130,6 +130,12 @@ export class SessionsService {
       qb.andWhere('session.patient_id = :patientId', { patientId: query.patient_id });
     }
 
+    if (query.therapist_id) {
+      qb.andWhere('session.therapist_id = :therapistId', {
+        therapistId: query.therapist_id,
+      });
+    }
+
     if (query.status) {
       qb.andWhere('session.status = :status', { status: query.status });
     }

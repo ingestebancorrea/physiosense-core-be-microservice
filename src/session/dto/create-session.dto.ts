@@ -137,6 +137,13 @@ export class QuerySessionsDto {
   @Min(1)
   patient_id?: number;
 
+  @ApiPropertyOptional({ description: 'physiotherapists.physiotherapist_id' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  therapist_id?: number;
+
   @ApiPropertyOptional({ enum: SessionStatus })
   @IsOptional()
   @IsEnum(SessionStatus)
